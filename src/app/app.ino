@@ -23,9 +23,18 @@ static constexpr uint32_t kSdFrequencyHz = 80000000;
 static constexpr uint16_t kDefaultLongPressMs = 1500;
 static constexpr uint8_t kButtonActiveLevel = LOW;
 static constexpr uint32_t kButtonDebounceMs = 30;
+static constexpr uint8_t kTouchGpio = 6; // TOUCH06 -> GPIO6 on ESP32-S2
+static constexpr uint8_t kTouchSamples = 8;
+static constexpr float kTouchThresholdRatio = 1.3f;
+static constexpr uint32_t kTouchDebounceMs = 250;
 
 static SPIClass sdSpi(HSPI);
 static bool sd_ready = false;
+static bool touch_ready = false;
+static uint32_t touch_baseline = 0;
+static uint32_t touch_threshold = 0;
+static bool touch_active = false;
+static unsigned long touch_last_trigger_ms = 0;
 
 static void enter_deep_sleep(uint32_t sleep_seconds) {
   Serial.flush();
@@ -36,6 +45,11 @@ static void enter_deep_sleep(uint32_t sleep_seconds) {
     rtc_gpio_pullup_en(static_cast<gpio_num_t>(BUTTON_PIN));
     rtc_gpio_pulldown_dis(static_cast<gpio_num_t>(BUTTON_PIN));
     esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(BUTTON_PIN), kButtonActiveLevel);
+  }
+  if (touch_ready) {
+    esp_sleep_enable_touchpad_wakeup();
+    LOGI("Touch", "Deep sleep touch wake enabled (baseline=%lu threshold=%lu)",
+         (unsigned long)touch_baseline, (unsigned long)touch_threshold);
   }
   esp_deep_sleep_start();
 }
@@ -59,6 +73,72 @@ static bool check_long_press(uint16_t long_press_ms) {
     delay(10);
   }
   return true;
+}
+
+static bool touch_read_value(uint32_t *out_value) {
+  if (!out_value) return false;
+  *out_value = (uint32_t)touchRead(kTouchGpio);
+  return true;
+}
+
+static bool init_touch_pad() {
+  touch_ready = false;
+  touch_baseline = 0;
+  touch_threshold = 0;
+
+  uint32_t sum = 0;
+  uint8_t samples = 0;
+  bool skipped_first = false;
+  for (uint8_t i = 0; i < kTouchSamples; i++) {
+    uint32_t value = 0;
+    if (touch_read_value(&value)) {
+      if (!skipped_first) {
+        skipped_first = true;
+      } else {
+        sum += value;
+        samples++;
+      }
+    }
+    delay(20);
+  }
+
+  if (samples == 0) {
+    LOGW("Touch", "Calibration failed (no samples)");
+    return false;
+  }
+
+  touch_baseline = sum / samples;
+  touch_threshold = (uint32_t)((float)touch_baseline * kTouchThresholdRatio);
+
+  touch_ready = true;
+  LOGI("Touch", "Calibrated baseline=%lu threshold=%lu (ratio=%.2f) gpio=%u",
+       (unsigned long)touch_baseline, (unsigned long)touch_threshold, kTouchThresholdRatio, kTouchGpio);
+  return true;
+}
+
+static bool poll_touch_trigger() {
+  if (!touch_ready) return false;
+
+  uint32_t value = 0;
+  if (!touch_read_value(&value)) {
+    return false;
+  }
+
+  const unsigned long now = millis();
+
+  const bool touched = (value > touch_threshold);
+  if (touched && !touch_active && (now - touch_last_trigger_ms) > kTouchDebounceMs) {
+    touch_active = true;
+    touch_last_trigger_ms = now;
+    LOGI("Touch", "Trigger value=%lu threshold=%lu", (unsigned long)value, (unsigned long)touch_threshold);
+    return true;
+  }
+
+  if (!touched && touch_active) {
+    touch_active = false;
+  }
+
+  return false;
 }
 
 static bool poll_button_click() {
@@ -261,6 +341,10 @@ static void run_always_on(DeviceConfig &config, bool config_loaded) {
       pending_refresh = true;
     }
 
+    if (poll_touch_trigger()) {
+      pending_refresh = true;
+    }
+
     const unsigned long now = millis();
     if (pending_refresh || (refresh_interval_ms > 0 && (now - last_refresh_ms >= refresh_interval_ms))) {
       if (render_next_image(config)) {
@@ -282,6 +366,8 @@ void setup() {
   log_init(115200);
   delay(200);
   LOGI("Boot", "Boot");
+
+  init_touch_pad();
 
   device_telemetry_init();
   device_telemetry_start_cpu_monitoring();
