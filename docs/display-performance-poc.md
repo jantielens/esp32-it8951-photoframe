@@ -127,3 +127,38 @@ This document tracks performance measurements for different display pipelines (d
 - Render Total: 10759 ms
 - BMP count: 116
 - Picked path: /L1007502.bmp
+
+## [09] BMP vs RAW/G4 render (on-device convert)
+
+**Pipeline**
+- SD → BMP decode → 16-gray quantization → IT8951 `writeNative()` (8bpp) → `refresh(false)`
+- SD → BMP → RAW (8bpp) + G4 (4bpp packed) conversion
+- SD → RAW render → `refresh(false)`
+- SD → G4 render (unpack → 8bpp) → `refresh(false)`
+
+**Results (2026-01-19)**
+- Display Init: 1317 ms
+- BMP Rows Write: 6235 ms
+- BMP Refresh: 628 ms
+- BMP Decode (total): 10707 ms
+- BMP Render Total: 10734 ms
+- Convert BMP → RAW+G4: 6146 ms
+- RAW Rows Write: 5151 ms
+- RAW Refresh: 627 ms
+- RAW Render Total: 5779 ms
+- G4 Rows Write: 4473 ms
+- G4 Refresh: 627 ms
+- G4 Render Total: 5101 ms
+- Path: /L1007502.bmp (raw=/L1007502.raw, g4=/L1007502.g4)
+
+## [10] G4-only render (preconverted on SD)
+
+**Pipeline**
+- SD → G4 read (4bpp packed) → unpack to 8bpp → IT8951 `writeNative()` → `refresh(false)`
+
+**Results (2026-01-19)**
+- Display Init: 1315 ms
+- G4 Rows Write: 8306 ms
+- G4 Refresh: 627 ms
+- G4 Render Total: 8934 ms
+- Path: /L1007502.g4 (from /L1007502.bmp)

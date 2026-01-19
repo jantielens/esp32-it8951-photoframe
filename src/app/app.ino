@@ -12,6 +12,23 @@ static constexpr uint32_t kSdFrequencyHz = 80000000;
 
 static SPIClass sdSpi(HSPI);
 
+static bool build_g4_path(const char *bmp_path, char *g4_path, size_t g4_size) {
+  if (!bmp_path || !g4_path || g4_size == 0) return false;
+  const size_t len = strnlen(bmp_path, g4_size);
+  if (len == 0 || len >= g4_size) return false;
+  strncpy(g4_path, bmp_path, g4_size);
+  g4_path[g4_size - 1] = '\0';
+  char *dot = strrchr(g4_path, '.');
+  if (!dot) {
+    if (len + 3 >= g4_size) return false;
+    strcat(g4_path, ".g4");
+    return true;
+  }
+  if (strlen(dot) < 3) return false;
+  strcpy(dot, ".g4");
+  return true;
+}
+
 static void enter_deep_sleep() {
   Serial.flush();
   delay(200);
@@ -40,16 +57,13 @@ void setup() {
   }
   LOG_DURATION("SD", "Init", sd_start);
 
-  randomSeed(analogRead(0));
-
-  char path[64];
-  const unsigned long pick_start = millis();
-  if (!sd_pick_random_bmp(path, sizeof(path))) {
-    LOGW("SD", "No BMP files found");
+  const char *bmp_path = "/L1007502.bmp";
+  char g4_path[64];
+  if (!build_g4_path(bmp_path, g4_path, sizeof(g4_path))) {
+    LOGE("EINK", "G4 path build failed for %s", bmp_path);
     enter_deep_sleep();
     return;
   }
-  LOG_DURATION("SD", "Pick", pick_start);
 
   const unsigned long disp_start = millis();
   if (!it8951_renderer_init()) {
@@ -59,13 +73,9 @@ void setup() {
   }
   LOG_DURATION("EINK", "Init", disp_start);
 
-  LOGI("EINK", "Render path=%s", path);
-
-  const unsigned long render_start = millis();
-  if (!it8951_render_bmp_from_sd(path)) {
-    LOGE("EINK", "Render failed");
-  } else {
-    LOG_DURATION("EINK", "Render", render_start);
+  LOGI("EINK", "Render G4=%s", g4_path);
+  if (!it8951_render_g4(g4_path)) {
+    LOGE("EINK", "Render G4 failed");
   }
 
   it8951_renderer_hibernate();

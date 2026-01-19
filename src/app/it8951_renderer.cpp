@@ -22,6 +22,8 @@ static const uint16_t kChunkRows = 8; // number of rows per writeNative
 static uint8_t input_buffer[3 * kInputBufferPixels];
 static uint8_t output_rows_gray_buffer[kMaxRowWidth * kChunkRows];
 static uint8_t grey_palette_buffer[kMaxPalettePixels];
+static uint8_t raw_row_buffer[kMaxRowWidth];
+static uint8_t g4_row_buffer[kMaxRowWidth / 2];
 
 static uint8_t read8(File &f) {
     return f.read();
@@ -202,6 +204,66 @@ static bool draw_bmp_16gray(File &file, int16_t x, int16_t y) {
     return valid;
 }
 
+static bool render_raw_rows(File &file, uint16_t w, uint16_t h) {
+    const unsigned long rows_start = millis();
+    for (uint16_t row = 0; row < h; row++) {
+        const int read_bytes = file.read(raw_row_buffer, w);
+        if (read_bytes != (int)w) {
+            LOGE("EINK", "RAW short read row=%u bytes=%d", (unsigned)row, read_bytes);
+            return false;
+        }
+
+        memcpy(&output_rows_gray_buffer[(row % kChunkRows) * kMaxRowWidth], raw_row_buffer, w);
+
+        const bool chunk_ready = ((row % kChunkRows) == (kChunkRows - 1)) || (row == (h - 1));
+        if (chunk_ready) {
+            const uint16_t chunk_rows = (row % kChunkRows) + 1;
+            const uint16_t yrow = row - chunk_rows + 1;
+            display.writeNative(output_rows_gray_buffer, nullptr, 0, yrow, w, chunk_rows, false, false, false);
+        }
+
+        if ((row % 200) == 0) {
+            LOGD("EINK", "RAW Row %u/%u", (unsigned)row, (unsigned)h);
+        }
+    }
+    LOG_DURATION("EINK", "Rows", rows_start);
+    return true;
+}
+
+static bool render_g4_rows(File &file, uint16_t w, uint16_t h) {
+    const unsigned long rows_start = millis();
+    const uint16_t packed_width = w / 2;
+    for (uint16_t row = 0; row < h; row++) {
+        const int read_bytes = file.read(g4_row_buffer, packed_width);
+        if (read_bytes != (int)packed_width) {
+            LOGE("EINK", "G4 short read row=%u bytes=%d", (unsigned)row, read_bytes);
+            return false;
+        }
+
+        uint32_t out_idx = 0;
+        for (uint16_t i = 0; i < packed_width; i++) {
+            const uint8_t packed = g4_row_buffer[i];
+            const uint8_t hi = packed >> 4;
+            const uint8_t lo = packed & 0x0F;
+            output_rows_gray_buffer[(row % kChunkRows) * kMaxRowWidth + out_idx++] = hi * 17;
+            output_rows_gray_buffer[(row % kChunkRows) * kMaxRowWidth + out_idx++] = lo * 17;
+        }
+
+        const bool chunk_ready = ((row % kChunkRows) == (kChunkRows - 1)) || (row == (h - 1));
+        if (chunk_ready) {
+            const uint16_t chunk_rows = (row % kChunkRows) + 1;
+            const uint16_t yrow = row - chunk_rows + 1;
+            display.writeNative(output_rows_gray_buffer, nullptr, 0, yrow, w, chunk_rows, false, false, false);
+        }
+
+        if ((row % 200) == 0) {
+            LOGD("EINK", "G4 Row %u/%u", (unsigned)row, (unsigned)h);
+        }
+    }
+    LOG_DURATION("EINK", "Rows", rows_start);
+    return true;
+}
+
 bool it8951_renderer_init() {
     if (g_display_ready) return true;
     display.init(115200);
@@ -223,6 +285,227 @@ bool it8951_render_bmp_from_sd(const char *path) {
     const bool ok = draw_bmp_16gray(file, 0, 0);
     file.close();
     LOG_DURATION("EINK", "RenderTotal", start_ms);
+    return ok;
+}
+
+bool it8951_convert_bmp_to_raw_g4(const char *bmp_path, const char *raw_path, const char *g4_path) {
+    if (!bmp_path || !raw_path || !g4_path) return false;
+    File bmp = SD.open(bmp_path, FILE_READ);
+    if (!bmp) {
+        LOGE("EINK", "BMP open failed path=%s", bmp_path);
+        return false;
+    }
+
+    const unsigned long start_ms = millis();
+
+    uint16_t signature = read16(bmp);
+    if (signature != 0x4D42) {
+        LOGE("EINK", "BMP signature mismatch");
+        bmp.close();
+        return false;
+    }
+
+    (void)read32(bmp); // file size
+    (void)read32(bmp); // creator bytes
+    uint32_t image_offset = read32(bmp);
+    (void)read32(bmp); // header size
+    uint32_t width = read32(bmp);
+    int32_t height = (int32_t)read32(bmp);
+    uint16_t planes = read16(bmp);
+    uint16_t depth = read16(bmp);
+    uint32_t format = read32(bmp);
+
+    if ((planes != 1) || !((format == 0) || (format == 3))) {
+        LOGE("EINK", "BMP format unsupported");
+        bmp.close();
+        return false;
+    }
+
+    if (height < 0) {
+        height = -height;
+    }
+
+    if (width != display.WIDTH || height != display.HEIGHT) {
+        LOGE("EINK", "BMP size mismatch %lux%ld", (unsigned long)width, (long)height);
+        bmp.close();
+        return false;
+    }
+
+    uint32_t row_size = (width * depth / 8 + 3) & ~3;
+    if (depth < 8) {
+        row_size = ((width * depth + 8 - depth) / 8 + 3) & ~3;
+    }
+
+    uint8_t bitmask = 0xFF;
+    uint8_t bitshift = 8 - depth;
+    uint16_t red, green, blue;
+    uint8_t grey;
+
+    if (depth <= 8) {
+        if (depth < 8) bitmask >>= depth;
+        bmp.seek(image_offset - (4 << depth));
+        for (uint16_t pn = 0; pn < (1 << depth); pn++) {
+            blue = read8(bmp);
+            green = read8(bmp);
+            red = read8(bmp);
+            read8(bmp);
+            grey = uint8_t((red * 77 + green * 150 + blue * 29) >> 8);
+            grey_palette_buffer[pn] = grey;
+        }
+    }
+
+    File raw = SD.open(raw_path, FILE_WRITE);
+    File g4 = SD.open(g4_path, FILE_WRITE);
+    if (!raw || !g4) {
+        LOGE("EINK", "RAW/G4 open failed");
+        bmp.close();
+        if (raw) raw.close();
+        if (g4) g4.close();
+        return false;
+    }
+
+    bmp.seek(image_offset);
+
+    for (uint16_t row = 0; row < height; row++) {
+        uint32_t in_remain = row_size;
+        uint32_t in_idx = 0;
+        uint32_t in_bytes = 0;
+        uint8_t in_byte = 0;
+        uint8_t in_bits = 0;
+
+        uint32_t raw_idx = 0;
+        uint32_t g4_idx = 0;
+        uint8_t g4_pack = 0;
+
+        for (uint16_t col = 0; col < width; col++) {
+            if (in_idx >= in_bytes) {
+                in_bytes = bmp.read(input_buffer, in_remain > sizeof(input_buffer) ? sizeof(input_buffer) : in_remain);
+                in_remain -= in_bytes;
+                in_idx = 0;
+            }
+
+            switch (depth) {
+                case 32:
+                    blue = input_buffer[in_idx++];
+                    green = input_buffer[in_idx++];
+                    red = input_buffer[in_idx++];
+                    in_idx++;
+                    grey = uint8_t((red * 77 + green * 150 + blue * 29) >> 8);
+                    break;
+                case 24:
+                    blue = input_buffer[in_idx++];
+                    green = input_buffer[in_idx++];
+                    red = input_buffer[in_idx++];
+                    grey = uint8_t((red * 77 + green * 150 + blue * 29) >> 8);
+                    break;
+                case 16: {
+                    uint8_t lsb = input_buffer[in_idx++];
+                    uint8_t msb = input_buffer[in_idx++];
+                    if (format == 0) {
+                        blue = (lsb & 0x1F) << 3;
+                        green = ((msb & 0x03) << 6) | ((lsb & 0xE0) >> 2);
+                        red = (msb & 0x7C) << 1;
+                    } else {
+                        blue = (lsb & 0x1F) << 3;
+                        green = ((msb & 0x07) << 5) | ((lsb & 0xE0) >> 3);
+                        red = (msb & 0xF8);
+                    }
+                    grey = uint8_t((red * 77 + green * 150 + blue * 29) >> 8);
+                } break;
+                case 1:
+                case 2:
+                case 4:
+                case 8: {
+                    if (in_bits == 0) {
+                        in_byte = input_buffer[in_idx++];
+                        in_bits = 8;
+                    }
+                    uint16_t pn = (in_byte >> bitshift) & bitmask;
+                    grey = grey_palette_buffer[pn];
+                    in_byte <<= depth;
+                    in_bits -= depth;
+                } break;
+                default:
+                    bmp.close();
+                    raw.close();
+                    g4.close();
+                    LOGE("EINK", "BMP depth unsupported");
+                    return false;
+            }
+
+            const uint8_t level = grey >> 4;
+            raw_row_buffer[raw_idx++] = level * 17;
+
+            if ((col & 1) == 0) {
+                g4_pack = (level << 4);
+            } else {
+                g4_pack |= level;
+                g4_row_buffer[g4_idx++] = g4_pack;
+            }
+        }
+
+        raw.write(raw_row_buffer, width);
+        g4.write(g4_row_buffer, width / 2);
+
+        if ((row % 200) == 0) {
+            LOGD("EINK", "CONV Row %u/%lu", (unsigned)row, (unsigned long)height);
+        }
+    }
+
+    bmp.close();
+    raw.close();
+    g4.close();
+    LOG_DURATION("EINK", "Convert", start_ms);
+    return true;
+}
+
+bool it8951_render_raw8(const char *raw_path) {
+    if (!raw_path) return false;
+    if (!g_display_ready && !it8951_renderer_init()) return false;
+    File raw = SD.open(raw_path, FILE_READ);
+    if (!raw) {
+        LOGE("EINK", "RAW open failed");
+        return false;
+    }
+
+    const unsigned long start_ms = millis();
+    const uint16_t w = display.WIDTH;
+    const uint16_t h = display.HEIGHT;
+    const bool ok = render_raw_rows(raw, w, h);
+    raw.close();
+
+    if (ok) {
+        const unsigned long refresh_start = millis();
+        display.refresh(false);
+        LOG_DURATION("EINK", "Refresh", refresh_start);
+    }
+
+    LOG_DURATION("EINK", "RenderRaw", start_ms);
+    return ok;
+}
+
+bool it8951_render_g4(const char *g4_path) {
+    if (!g4_path) return false;
+    if (!g_display_ready && !it8951_renderer_init()) return false;
+    File g4 = SD.open(g4_path, FILE_READ);
+    if (!g4) {
+        LOGE("EINK", "G4 open failed");
+        return false;
+    }
+
+    const unsigned long start_ms = millis();
+    const uint16_t w = display.WIDTH;
+    const uint16_t h = display.HEIGHT;
+    const bool ok = render_g4_rows(g4, w, h);
+    g4.close();
+
+    if (ok) {
+        const unsigned long refresh_start = millis();
+        display.refresh(false);
+        LOG_DURATION("EINK", "Refresh", refresh_start);
+    }
+
+    LOG_DURATION("EINK", "RenderG4", start_ms);
     return ok;
 }
 
