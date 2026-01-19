@@ -1,19 +1,24 @@
-# Copilot Instructions for ESP32 Template Project
+# Copilot Instructions for ESP32 iT8951 Photo Frame
 
 ## Project Overview
 
-ESP32 Arduino development template using `arduino-cli` for headless builds. Designed for WSL2/Linux environments with local toolchain installation (no system dependencies).
+This repository is a **project-specific firmware** for a single target board and display driver. It was created from a template, but it is **no longer a template**. Code should be optimized for the chosen hardware and use cases, not generalized for many boards.
+
+### Scope & Assumptions (Important)
+- **Single target board**: treat the current board as the primary (and default) target.
+- **Single display driver**: assume the selected display driver is the one in use.
+- **No generic template patterns**: avoid adding extra compile-time flags or “template” abstractions unless a real project need exists.
+- **Prefer direct implementations** over conditional compilation when not required for this project.
 
 ## Architecture
 
 - **Build System**: Custom bash scripts wrapping `arduino-cli` (installed locally to `./bin/`)
 - **PNG Assets (LVGL)**: Optional `assets/png/*.png` conversion to `lv_img_dsc_t` symbols (generated into `src/app/png_assets.cpp/h` by `tools/png2lvgl_assets.py` when building display-enabled boards)
 - **Sketch Location**: Main Arduino file at `src/app/app.ino`
-- **Board Configuration**: Flexible system with optional board-specific overrides
-  - `src/app/board_config.h` - Default configuration for all boards
-  - `src/boards/[board-name]/board_overrides.h` - Optional board-specific compile-time defines
-  - Build system automatically detects and applies overrides when present
-  - Application uses `#if HAS_xxx` conditional compilation for board-specific logic
+- **Board Configuration**: Project-specific configuration with optional overrides
+  - `src/app/board_config.h` - Default configuration for this project
+  - `src/boards/[board-name]/board_overrides.h` - Optional per-board overrides (use only if the project genuinely supports multiple boards)
+  - Avoid `#if HAS_xxx` and other template-style feature flags unless required by the project
 - **Display & Touch Subsystem**: HAL-based architecture with LVGL integration (see `docs/display-touch-architecture.md`)
   - `display_driver.h` - DisplayDriver HAL interface (`RenderMode`, `present()`, `configureLVGL()`)
   - `display_manager.cpp/h` - Hardware lifecycle, LVGL init, FreeRTOS rendering task

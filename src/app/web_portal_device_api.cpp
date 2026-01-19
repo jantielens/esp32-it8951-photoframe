@@ -188,12 +188,7 @@ void handleGetHealth(AsyncWebServerRequest *request) {
 // GET /api/health/history - Get device-side health history for sparklines
 void handleGetHealthHistory(AsyncWebServerRequest *request) {
     if (!portal_auth_gate(request)) return;
-
-    #if !HEALTH_HISTORY_ENABLED
-        request->send(404, "application/json", "{\"available\":false}");
-        return;
-    #endif
-
+#if HEALTH_HISTORY_ENABLED
     if (!health_history_available()) {
         request->send(404, "application/json", "{\"available\":false}");
         return;
@@ -271,6 +266,9 @@ void handleGetHealthHistory(AsyncWebServerRequest *request) {
 
     response->print("}");
     request->send(response);
+#else
+    request->send(404, "application/json", "{\"available\":false}");
+#endif
 }
 
 // POST /api/reboot - Reboot device without saving
