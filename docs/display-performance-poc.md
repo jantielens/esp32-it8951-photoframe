@@ -174,3 +174,7 @@ This document tracks performance measurements for different display pipelines (d
 - G4 Refresh: 633 ms
 - G4 Render Total: 2086 ms
 - Path: /L1007502.g4 (from /L1007502.bmp)
+
+## Conclusion
+
+G4 (packed 4bpp) wins on both **render performance** and **file size**. Since images must be preprocessed anyway, storing preconverted `.g4` files on SD is the preferred pipeline; BMP adds decode time and larger storage with no upside.
