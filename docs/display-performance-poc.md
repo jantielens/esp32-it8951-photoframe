@@ -162,3 +162,15 @@ This document tracks performance measurements for different display pipelines (d
 - G4 Refresh: 627 ms
 - G4 Render Total: 8934 ms
 - Path: /L1007502.g4 (from /L1007502.bmp)
+
+## [11] G4-only render (packed 4bpp to IT8951)
+
+**Pipeline**
+- SD → G4 read (4bpp packed) → IT8951 4bpp load → `refresh(false)`
+
+**Results (2026-01-19)**
+- Display Init: 1315 ms
+- G4 Rows Write: 1453 ms
+- G4 Refresh: 633 ms
+- G4 Render Total: 2086 ms
+- Path: /L1007502.g4 (from /L1007502.bmp)

@@ -24,6 +24,96 @@ static uint8_t output_rows_gray_buffer[kMaxRowWidth * kChunkRows];
 static uint8_t grey_palette_buffer[kMaxPalettePixels];
 static uint8_t raw_row_buffer[kMaxRowWidth];
 static uint8_t g4_row_buffer[kMaxRowWidth / 2];
+static uint8_t g4_chunk_buffer[(kMaxRowWidth / 2) * kChunkRows];
+
+// IT8951 I80 command constants (mirroring GxEPD2 driver)
+static const uint16_t IT8951_TCON_SYS_RUN = 0x0001;
+static const uint16_t IT8951_TCON_LD_IMG_AREA = 0x0021;
+static const uint16_t IT8951_TCON_LD_IMG_END = 0x0022;
+
+static const uint16_t IT8951_ROTATE_0 = 0;
+static const uint16_t IT8951_4BPP = 2;
+static const uint16_t IT8951_LDIMG_B_ENDIAN = 1;
+
+static const uint32_t kBusyTimeoutUs = 10000000;
+
+static SPISettings it8951_spi_settings(24000000, MSBFIRST, SPI_MODE0);
+
+static void it8951_wait_ready(uint16_t busy_time_ms = 1) {
+    if (IT8951_BUSY_PIN >= 0) {
+        const unsigned long start = micros();
+        while (digitalRead(IT8951_BUSY_PIN) == LOW) {
+            delay(1);
+            if (micros() - start > kBusyTimeoutUs) {
+                LOGW("EINK", "IT8951 busy timeout");
+                break;
+            }
+        }
+    } else {
+        delay(busy_time_ms);
+    }
+}
+
+static uint16_t it8951_transfer16(uint16_t value) {
+    uint16_t rv = SPI.transfer(value >> 8) << 8;
+    return (rv | SPI.transfer(value));
+}
+
+static void it8951_write_command16(uint16_t cmd) {
+    it8951_wait_ready();
+    SPI.beginTransaction(it8951_spi_settings);
+    digitalWrite(IT8951_CS_PIN, LOW);
+    it8951_transfer16(0x6000);
+    it8951_wait_ready();
+    it8951_transfer16(cmd);
+    digitalWrite(IT8951_CS_PIN, HIGH);
+    SPI.endTransaction();
+}
+
+static void it8951_write_data16(uint16_t data) {
+    it8951_wait_ready();
+    SPI.beginTransaction(it8951_spi_settings);
+    digitalWrite(IT8951_CS_PIN, LOW);
+    it8951_transfer16(0x0000);
+    it8951_wait_ready();
+    it8951_transfer16(data);
+    digitalWrite(IT8951_CS_PIN, HIGH);
+    SPI.endTransaction();
+}
+
+static void it8951_write_command_data16(uint16_t cmd, const uint16_t* data, uint16_t count) {
+    it8951_write_command16(cmd);
+    for (uint16_t i = 0; i < count; i++) {
+        it8951_write_data16(data[i]);
+    }
+}
+
+static void it8951_set_partial_area_4bpp(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+    uint16_t args[5];
+    args[0] = (IT8951_LDIMG_B_ENDIAN << 8) | (IT8951_4BPP << 4) | (IT8951_ROTATE_0);
+    args[1] = x;
+    args[2] = y;
+    args[3] = w;
+    args[4] = h;
+    it8951_write_command_data16(IT8951_TCON_LD_IMG_AREA, args, 5);
+}
+
+static void it8951_write_data_bytes(const uint8_t* data, size_t length) {
+    it8951_wait_ready();
+    SPI.beginTransaction(it8951_spi_settings);
+    digitalWrite(IT8951_CS_PIN, LOW);
+    it8951_transfer16(0x0000);
+    it8951_wait_ready();
+#if defined(ARDUINO_ARCH_ESP32)
+    SPI.writeBytes(data, length);
+#else
+    for (size_t i = 0; i < length; i++) {
+        SPI.transfer(data[i]);
+    }
+#endif
+    digitalWrite(IT8951_CS_PIN, HIGH);
+    SPI.endTransaction();
+}
 
 static uint8_t read8(File &f) {
     return f.read();
@@ -233,27 +323,23 @@ static bool render_raw_rows(File &file, uint16_t w, uint16_t h) {
 static bool render_g4_rows(File &file, uint16_t w, uint16_t h) {
     const unsigned long rows_start = millis();
     const uint16_t packed_width = w / 2;
+    it8951_write_command16(IT8951_TCON_SYS_RUN);
     for (uint16_t row = 0; row < h; row++) {
-        const int read_bytes = file.read(g4_row_buffer, packed_width);
+        const uint16_t chunk_offset = (row % kChunkRows) * packed_width;
+        const int read_bytes = file.read(&g4_chunk_buffer[chunk_offset], packed_width);
         if (read_bytes != (int)packed_width) {
             LOGE("EINK", "G4 short read row=%u bytes=%d", (unsigned)row, read_bytes);
             return false;
-        }
-
-        uint32_t out_idx = 0;
-        for (uint16_t i = 0; i < packed_width; i++) {
-            const uint8_t packed = g4_row_buffer[i];
-            const uint8_t hi = packed >> 4;
-            const uint8_t lo = packed & 0x0F;
-            output_rows_gray_buffer[(row % kChunkRows) * kMaxRowWidth + out_idx++] = hi * 17;
-            output_rows_gray_buffer[(row % kChunkRows) * kMaxRowWidth + out_idx++] = lo * 17;
         }
 
         const bool chunk_ready = ((row % kChunkRows) == (kChunkRows - 1)) || (row == (h - 1));
         if (chunk_ready) {
             const uint16_t chunk_rows = (row % kChunkRows) + 1;
             const uint16_t yrow = row - chunk_rows + 1;
-            display.writeNative(output_rows_gray_buffer, nullptr, 0, yrow, w, chunk_rows, false, false, false);
+            const size_t chunk_bytes = (size_t)chunk_rows * packed_width;
+            it8951_set_partial_area_4bpp(0, yrow, w, chunk_rows);
+            it8951_write_data_bytes(g4_chunk_buffer, chunk_bytes);
+            it8951_write_command16(IT8951_TCON_LD_IMG_END);
         }
 
         if ((row % 200) == 0) {
