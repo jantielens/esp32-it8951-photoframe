@@ -29,3 +29,101 @@ This document tracks performance measurements for different display pipelines (d
 - Render Total: 12041 ms
 - BMP count: 116
 - Picked path: /20140716-P7164162.bmp
+
+## [01] Chunked writeNative (8 rows)
+
+**Pipeline**
+- SD → BMP decode → 16-gray quantization → IT8951 `writeNative()` (8bpp) → `refresh(false)`
+
+**Results (2026-01-19)**
+- Boot log: 241 ms
+- SD Init: 7 ms
+- SD Scan: 2413 ms
+- SD Pick: 2413 ms
+- Display Init: 1315 ms
+- Rows Write: 6164 ms
+- Refresh: 628 ms
+- BMP Decode (total): 10637 ms
+- Render Total: 10664 ms
+- BMP count: 116
+- Picked path: /L1007137.bmp
+
+## [02] Chunked writeNative (16 rows)
+
+**Results (2026-01-19)**
+- Rows Write: 6214 ms
+
+## [03] Chunked writeNative (4 rows)
+
+**Results (2026-01-19)**
+- Rows Write: 6506 ms
+
+## [02b] Chunked writeNative (8 rows) + no clearScreen
+
+**Results (2026-01-19)**
+- Rows Write: 9993 ms
+- Refresh: 628 ms
+- BMP Decode (total): 10633 ms
+- Render Total: 10648 ms
+- BMP count: 116
+- Picked path: /20141004-PA046272.bmp
+
+## [02c] Chunked writeNative (8 rows) + clearScreen restored
+
+**Results (2026-01-19)**
+- Rows Write: 6164 ms
+- Refresh: 628 ms
+- BMP Decode (total): 10636 ms
+- Render Total: 10660 ms
+- BMP count: 116
+- Picked path: /20250303-DSC09950.bmp
+
+## [04] Luminance weights (77/150/29)
+
+**Results (2026-01-19)**
+- Rows Write: 6258 ms
+- Refresh: 628 ms
+- BMP Decode (total): 10731 ms
+- Render Total: 10759 ms
+- BMP count: 116
+- Picked path: /L1007502.bmp
+
+## [05] Sequential row read (no per-row seek)
+
+**Results (2026-01-19)**
+- Rows Write: 6148 ms
+- Refresh: 628 ms
+- BMP Decode (total): 10621 ms
+- Render Total: 10643 ms
+- BMP count: 116
+- Picked path: /20230528-DSC05231.bmp
+
+## [06] SPI write speed 24MHz
+
+**Results (2026-01-19)**
+- Rows Write: 6145 ms
+- Refresh: 628 ms
+- BMP Decode (total): 10617 ms
+- Render Total: 10630 ms
+- BMP count: 116
+- Picked path: /20130801-DSC_3729.bmp
+
+## [07] SPI write speed 40MHz
+
+**Results (2026-01-19)**
+- Rows Write: 6145 ms
+- Refresh: 628 ms
+- BMP Decode (total): 10618 ms
+- Render Total: 10646 ms
+- BMP count: 116
+- Picked path: /L1007336.bmp
+
+## [08] Kept baseline (8 rows + luminance weights)
+
+**Results (2026-01-19)**
+- Rows Write: 6258 ms
+- Refresh: 628 ms
+- BMP Decode (total): 10731 ms
+- Render Total: 10759 ms
+- BMP count: 116
+- Picked path: /L1007502.bmp

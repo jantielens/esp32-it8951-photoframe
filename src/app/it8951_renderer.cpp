@@ -17,9 +17,10 @@ static bool g_display_ready = false;
 static const uint16_t kInputBufferPixels = 1872;
 static const uint16_t kMaxRowWidth = 1872;
 static const uint16_t kMaxPalettePixels = 256;
+static const uint16_t kChunkRows = 8; // number of rows per writeNative
 
 static uint8_t input_buffer[3 * kInputBufferPixels];
-static uint8_t output_row_gray_buffer[kMaxRowWidth];
+static uint8_t output_rows_gray_buffer[kMaxRowWidth * kChunkRows];
 static uint8_t grey_palette_buffer[kMaxPalettePixels];
 
 static uint8_t read8(File &f) {
@@ -128,13 +129,13 @@ static bool draw_bmp_16gray(File &file, int16_t x, int16_t y) {
                             green = input_buffer[in_idx++];
                             red = input_buffer[in_idx++];
                             in_idx++;
-                            grey = uint8_t((red + green + blue) / 3);
+                            grey = uint8_t((red * 77 + green * 150 + blue * 29) >> 8);
                             break;
                         case 24:
                             blue = input_buffer[in_idx++];
                             green = input_buffer[in_idx++];
                             red = input_buffer[in_idx++];
-                            grey = uint8_t((red + green + blue) / 3);
+                            grey = uint8_t((red * 77 + green * 150 + blue * 29) >> 8);
                             break;
                         case 16: {
                             uint8_t lsb = input_buffer[in_idx++];
@@ -148,7 +149,7 @@ static bool draw_bmp_16gray(File &file, int16_t x, int16_t y) {
                                 green = ((msb & 0x07) << 5) | ((lsb & 0xE0) >> 3);
                                 red = (msb & 0xF8);
                             }
-                            grey = uint8_t((red + green + blue) / 3);
+                            grey = uint8_t((red * 77 + green * 150 + blue * 29) >> 8);
                         } break;
                         case 1:
                         case 2:
@@ -171,13 +172,17 @@ static bool draw_bmp_16gray(File &file, int16_t x, int16_t y) {
                     if (!valid) break;
 
                     const uint8_t level = grey >> 4; // 0-15
-                    output_row_gray_buffer[out_idx++] = level * 17; // expand to 0-255
+                    output_rows_gray_buffer[(row % kChunkRows) * kMaxRowWidth + out_idx++] = level * 17; // expand to 0-255
                 }
 
                 if (!valid) break;
 
-                uint16_t yrow = y + (flip ? h - row - 1 : row);
-                display.writeNative(output_row_gray_buffer, nullptr, x, yrow, w, 1, false, false, false);
+                const bool chunk_ready = ((row % kChunkRows) == (kChunkRows - 1)) || (row == (h - 1));
+                if (chunk_ready) {
+                    const uint16_t chunk_rows = (row % kChunkRows) + 1;
+                    const uint16_t yrow = y + (flip ? (h - row - chunk_rows) : (row - chunk_rows + 1));
+                    display.writeNative(output_rows_gray_buffer, nullptr, x, yrow, w, chunk_rows, false, false, false);
+                }
 
                 if ((row % 200) == 0) {
                     LOGD("EINK", "Row %u/%u", (unsigned)row, (unsigned)h);
