@@ -22,11 +22,16 @@ enum class SdImageSelectMode : uint8_t {
 
 // Select a .g4 image from SD root.
 // last_index is the last displayed index for sequential mode (use UINT32_MAX when unknown).
+// last_name is the last displayed filename for sequential mode (can be nullptr).
 // out_selected_index returns the index of the chosen image within the sorted list.
+// out_selected_name returns the selected filename (can be nullptr).
 bool sd_pick_g4_image(
     char *out_path,
     size_t out_len,
     SdImageSelectMode mode,
     uint32_t last_index,
-    uint32_t *out_selected_index
+    const char *last_name,
+    uint32_t *out_selected_index,
+    char *out_selected_name,
+    size_t out_selected_name_len
 );

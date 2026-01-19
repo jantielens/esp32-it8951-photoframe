@@ -1014,6 +1014,9 @@ List `.g4` images on the SD card (sorted by filename).
 }
 ```
 
+**Response (Busy):**
+- `409` when the SD card is busy (upload or render in progress)
+
 #### `POST /api/sd/images`
 
 Upload a `.g4` file to SD (overwrites on conflict).
@@ -1029,6 +1032,9 @@ Upload a `.g4` file to SD (overwrites on conflict).
 }
 ```
 
+**Response (Busy):**
+- `409` when the SD card is busy (upload or render in progress)
+
 #### `DELETE /api/sd/images?name=<filename>`
 
 Delete a `.g4` file from SD.
@@ -1040,6 +1046,9 @@ Delete a `.g4` file from SD.
 }
 ```
 
+**Response (Busy):**
+- `409` when the SD card is busy (upload or render in progress)
+
 #### `POST /api/sd/images/display?name=<filename>`
 
 Display a `.g4` image immediately without waiting for the next boot cycle.
@@ -1050,6 +1059,17 @@ Display a `.g4` image immediately without waiting for the next boot cycle.
   "success": true
 }
 ```
+
+**Response (Queued):**
+```json
+{
+  "success": true,
+  "queued": true
+}
+```
+
+**Response (Busy):**
+- `409` when another display is already pending
 
 ## Implementation Details
 

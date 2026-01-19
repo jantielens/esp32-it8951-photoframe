@@ -5,6 +5,7 @@
 #include "config_manager.h"
 #include "rtc_state.h"
 #include "web_portal.h"
+#include "web_portal_sd_images.h"
 #include "device_telemetry.h"
 #if HEALTH_HISTORY_ENABLED
 #include "health_history.h"
@@ -166,7 +167,12 @@ static void start_portal(DeviceConfig &config, bool config_loaded) {
 }
 
 static bool render_next_image(DeviceConfig &config) {
+  if (!sd_images_try_lock("auto_render")) {
+    return false;
+  }
+
   if (!ensure_sd_ready()) {
+    sd_images_unlock();
     return false;
   }
 
@@ -174,29 +180,48 @@ static bool render_next_image(DeviceConfig &config) {
   const SdImageSelectMode mode = (strcmp(config.image_selection_mode, "sequential") == 0)
       ? SdImageSelectMode::Sequential
       : SdImageSelectMode::Random;
-  const uint32_t last_index = rtc_image_state_get_last_image_index();
-  uint32_t selected_index = 0;
-  if (!sd_pick_g4_image(g4_path, sizeof(g4_path), mode, last_index, &selected_index)) {
-    LOGW("SD", "No .g4 files found");
-    return false;
+  uint32_t working_index = rtc_image_state_get_last_image_index();
+  char working_name_buf[64] = {0};
+  const char *rtc_name = rtc_image_state_get_last_image_name();
+  if (rtc_name && rtc_name[0] != '\0') {
+    strlcpy(working_name_buf, rtc_name, sizeof(working_name_buf));
   }
 
-  if (!it8951_renderer_init()) {
-    LOGE("EINK", "Init failed");
-    return false;
+  const uint8_t max_attempts = (mode == SdImageSelectMode::Sequential) ? 3 : 1;
+  for (uint8_t attempt = 0; attempt < max_attempts; attempt++) {
+    uint32_t selected_index = 0;
+    char selected_name[64] = {0};
+    if (!sd_pick_g4_image(g4_path, sizeof(g4_path), mode, working_index, working_name_buf, &selected_index, selected_name, sizeof(selected_name))) {
+      LOGW("SD", "No .g4 files found");
+      sd_images_unlock();
+      return false;
+    }
+
+    if (!it8951_renderer_init()) {
+      LOGE("EINK", "Init failed");
+      sd_images_unlock();
+      return false;
+    }
+
+    LOGI("EINK", "Render G4=%s", g4_path);
+    if (!it8951_render_g4(g4_path)) {
+      LOGE("EINK", "Render G4 failed");
+      working_index = selected_index;
+      strlcpy(working_name_buf, selected_name, sizeof(working_name_buf));
+      continue;
+    }
+
+    if (mode == SdImageSelectMode::Sequential) {
+      rtc_image_state_set_last_image_index(selected_index);
+      rtc_image_state_set_last_image_name(selected_name);
+    }
+
+    sd_images_unlock();
+    return true;
   }
 
-  LOGI("EINK", "Render G4=%s", g4_path);
-  if (!it8951_render_g4(g4_path)) {
-    LOGE("EINK", "Render G4 failed");
-    return false;
-  }
-
-  if (mode == SdImageSelectMode::Sequential) {
-    rtc_image_state_set_last_image_index(selected_index);
-  }
-
-  return true;
+  sd_images_unlock();
+  return false;
 }
 
 static void run_config_mode(DeviceConfig &config, bool config_loaded) {
@@ -206,6 +231,7 @@ static void run_config_mode(DeviceConfig &config, bool config_loaded) {
 
   while (true) {
     web_portal_handle();
+    sd_images_process_pending_display();
     delay(10);
   }
 }
@@ -226,15 +252,21 @@ static void run_always_on(DeviceConfig &config, bool config_loaded) {
   while (true) {
     web_portal_handle();
 
+    if (sd_images_process_pending_display()) {
+      last_refresh_ms = millis();
+      pending_refresh = false;
+    }
+
     if (poll_button_click()) {
       pending_refresh = true;
     }
 
     const unsigned long now = millis();
     if (pending_refresh || (refresh_interval_ms > 0 && (now - last_refresh_ms >= refresh_interval_ms))) {
-      render_next_image(config);
-      last_refresh_ms = now;
-      pending_refresh = false;
+      if (render_next_image(config)) {
+        last_refresh_ms = now;
+        pending_refresh = false;
+      }
     }
 
     delay(10);
@@ -304,8 +336,10 @@ void setup() {
       ? SdImageSelectMode::Sequential
       : SdImageSelectMode::Random;
   const uint32_t last_index = rtc_image_state_get_last_image_index();
+  const char *last_name = rtc_image_state_get_last_image_name();
   uint32_t selected_index = 0;
-  if (!sd_pick_g4_image(g4_path, sizeof(g4_path), mode, last_index, &selected_index)) {
+  char selected_name[64] = {0};
+  if (!sd_pick_g4_image(g4_path, sizeof(g4_path), mode, last_index, last_name, &selected_index, selected_name, sizeof(selected_name))) {
     LOGW("SD", "No .g4 files found");
     enter_deep_sleep(sleep_seconds);
     return;
@@ -324,6 +358,7 @@ void setup() {
     LOGE("EINK", "Render G4 failed");
   } else if (mode == SdImageSelectMode::Sequential) {
     rtc_image_state_set_last_image_index(selected_index);
+    rtc_image_state_set_last_image_name(selected_name);
   }
 
   it8951_renderer_hibernate();

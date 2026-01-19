@@ -1002,6 +1002,10 @@ function sdRenderList(files) {
 async function sdLoadImages() {
     try {
         const resp = await fetch(API_SD_IMAGES, { cache: 'no-cache' });
+        if (resp.status === 409) {
+            showMessage('SD busy, try again shortly', 'error');
+            return;
+        }
         if (!resp.ok) throw new Error('Failed to load SD images');
         const data = await resp.json();
         sdRenderList(data.files || []);
@@ -1050,6 +1054,9 @@ async function sdUploadImage() {
             body: formData
         });
 
+        if (resp.status === 409) {
+            throw new Error('Device busy, retry in a moment');
+        }
         if (!resp.ok) {
             throw new Error('Upload failed');
         }
@@ -1076,6 +1083,9 @@ async function sdDeleteImage(name) {
         const resp = await fetch(`${API_SD_IMAGES}?name=${encodeURIComponent(name)}`, {
             method: 'DELETE'
         });
+        if (resp.status === 409) {
+            throw new Error('Device busy, retry in a moment');
+        }
         if (!resp.ok) throw new Error('Delete failed');
         showMessage('Deleted', 'success');
         await sdLoadImages();
@@ -1092,6 +1102,13 @@ async function sdDisplayImage(name) {
         const resp = await fetch(`${API_SD_IMAGES_DISPLAY}?name=${encodeURIComponent(name)}`, {
             method: 'POST'
         });
+        if (resp.status === 202) {
+            showMessage('Display queued', 'info');
+            return;
+        }
+        if (resp.status === 409) {
+            throw new Error('Display already pending');
+        }
         if (!resp.ok) throw new Error('Display failed');
         showMessage('Image displayed', 'success');
     } catch (e) {

@@ -121,7 +121,10 @@ bool sd_pick_g4_image(
     size_t out_len,
     SdImageSelectMode mode,
     uint32_t last_index,
-    uint32_t *out_selected_index
+    const char *last_name,
+    uint32_t *out_selected_index,
+    char *out_selected_name,
+    size_t out_selected_name_len
 ) {
     if (!out_path || out_len == 0) return false;
 
@@ -143,10 +146,29 @@ bool sd_pick_g4_image(
     if (mode == SdImageSelectMode::Random) {
         index = static_cast<uint32_t>(random(count));
     } else {
-        if (last_index == kInvalidIndex || last_index >= count) {
+        bool found_last = false;
+        uint32_t base_index = kInvalidIndex;
+
+        if (last_name && last_name[0] != '\0') {
+            for (uint32_t i = 0; i < count; i++) {
+                if (names[i] == last_name) {
+                    base_index = i;
+                    found_last = true;
+                    break;
+                }
+            }
+        }
+
+        if (!found_last) {
+            if (last_index != kInvalidIndex && last_index < count) {
+                base_index = last_index;
+            }
+        }
+
+        if (base_index == kInvalidIndex || base_index >= count) {
             index = 0;
         } else {
-            index = (last_index + 1) % count;
+            index = (base_index + 1) % count;
         }
     }
 
@@ -154,6 +176,10 @@ bool sd_pick_g4_image(
     if (name.length() + 1 >= out_len) return false;
     out_path[0] = '/';
     memcpy(out_path + 1, name.c_str(), name.length() + 1);
+
+    if (out_selected_name && out_selected_name_len > 0) {
+        strlcpy(out_selected_name, name.c_str(), out_selected_name_len);
+    }
 
     if (out_selected_index) {
         *out_selected_index = index;
