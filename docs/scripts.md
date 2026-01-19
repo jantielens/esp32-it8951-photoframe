@@ -143,6 +143,35 @@ python3 tools/png2lvgl_assets.py assets/png src/app/png_assets.cpp src/app/png_a
 
 ---
 
+## tools/jpg_to_g4.py
+
+**Purpose:** Convert JPG images to packed 4bpp `.g4` files for IT8951 (no stretch; letterboxed on white background). Outputs are vertically flipped and mirrored horizontally to match panel orientation. Generates `__BASE.g4` (no optimizations), `__OPT.g4` (contrast/sharpen), `__OPT_BAYER.g4`, `__OPT_FS.g4`, or `__COMPARE.g4` (4-way split: BASE, OPT, OPT+BAYER, OPT+FS).
+
+**Usage:**
+```bash
+python3 tools/jpg_to_g4.py /path/to/photos               # default OPT+BAYER
+python3 tools/jpg_to_g4.py /path/to/photos --variant base
+python3 tools/jpg_to_g4.py /path/to/photos --variant opt
+python3 tools/jpg_to_g4.py /path/to/photos --variant opt-bayer
+python3 tools/jpg_to_g4.py /path/to/photos --variant opt-fs
+python3 tools/jpg_to_g4.py /path/to/photos --variant compare
+python3 tools/jpg_to_g4.py /path/to/photo.jpg -o /path/to/output
+python3 tools/jpg_to_g4.py /path/to/photos --width 1872 --height 1404
+```
+
+**Output:** For each input image, writes one file next to the input (or in `--output` directory), based on `--variant`:
+- `<name>__BASE.g4`
+- `<name>__OPT.g4`
+- `<name>__OPT_BAYER.g4`
+- `<name>__OPT_FS.g4`
+- `<name>__COMPARE.g4`
+
+Each byte packs two pixels: high nibble = left pixel, low nibble = right pixel.
+
+**Requirements:** Python 3 + Pillow (`python3 -m pip install --user pillow`).
+
+---
+
 ## tools/generate-board-driver-table.py
 
 **Purpose:** Generate a markdown table mapping **board → selected display/touch backends → basic hardware**.

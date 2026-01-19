@@ -7,27 +7,53 @@
 #include <SPI.h>
 #include <esp_sleep.h>
 
-static constexpr uint32_t kSleepSeconds = 30;
+static constexpr uint32_t kSleepSeconds = 20;
 static constexpr uint32_t kSdFrequencyHz = 80000000;
 
 static SPIClass sdSpi(HSPI);
 
-static bool build_g4_path(const char *bmp_path, char *g4_path, size_t g4_size) {
-  if (!bmp_path || !g4_path || g4_size == 0) return false;
-  const size_t len = strnlen(bmp_path, g4_size);
-  if (len == 0 || len >= g4_size) return false;
-  strncpy(g4_path, bmp_path, g4_size);
-  g4_path[g4_size - 1] = '\0';
-  char *dot = strrchr(g4_path, '.');
-  if (!dot) {
-    if (len + 3 >= g4_size) return false;
-    strcat(g4_path, ".g4");
-    return true;
-  }
-  if (strlen(dot) < 3) return false;
-  strcpy(dot, ".g4");
-  return true;
+static bool is_g4_file(const char *name) {
+  if (!name) return false;
+  const char *suffix = ".g4";
+  const size_t name_len = strlen(name);
+  const size_t suffix_len = strlen(suffix);
+  if (name_len < suffix_len) return false;
+  return strcmp(name + (name_len - suffix_len), suffix) == 0;
 }
+
+static bool pick_random_g4(char *path, size_t path_size) {
+  if (!path || path_size == 0) return false;
+
+  File root = SD.open("/");
+  if (!root) return false;
+
+  uint32_t count = 0;
+  bool found = false;
+
+  while (true) {
+    File entry = root.openNextFile();
+    if (!entry) break;
+    if (!entry.isDirectory()) {
+      const char *name = entry.name();
+      if (is_g4_file(name)) {
+        count++;
+        if (random(count) == 0) {
+          size_t len = strlen(name);
+          if (len + 1 < path_size) {
+            path[0] = '/';
+            memcpy(path + 1, name, len + 1);
+            found = true;
+          }
+        }
+      }
+    }
+    entry.close();
+  }
+
+  root.close();
+  return found;
+}
+
 
 static void enter_deep_sleep() {
   Serial.flush();
@@ -57,10 +83,11 @@ void setup() {
   }
   LOG_DURATION("SD", "Init", sd_start);
 
-  const char *bmp_path = "/L1007502.bmp";
+  randomSeed(analogRead(0));
+
   char g4_path[64];
-  if (!build_g4_path(bmp_path, g4_path, sizeof(g4_path))) {
-    LOGE("EINK", "G4 path build failed for %s", bmp_path);
+  if (!pick_random_g4(g4_path, sizeof(g4_path))) {
+    LOGW("SD", "No .g4 files found");
     enter_deep_sleep();
     return;
   }
