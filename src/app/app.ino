@@ -1,6 +1,7 @@
 #include "board_config.h"
 #include "sd_photo_picker.h"
 #include "it8951_renderer.h"
+#include "log_manager.h"
 
 #include <SD.h>
 #include <SPI.h>
@@ -19,10 +20,9 @@ static void enter_deep_sleep() {
 }
 
 void setup() {
-  Serial.begin(115200);
+  log_init(115200);
   delay(200);
-  Serial.println();
-  Serial.println("Photoframe boot");
+  LOGI("PHASE1", "Boot");
 
   SdCardPins pins = {
       .cs = SD_CS_PIN,
@@ -32,35 +32,44 @@ void setup() {
       .power = SD_POWER_PIN,
   };
 
+  const unsigned long sd_start = millis();
   if (!sd_photo_picker_init(sdSpi, pins, kSdFrequencyHz)) {
-    Serial.println("SD init failed");
+    LOGE("SD", "Init failed");
     enter_deep_sleep();
     return;
   }
+  LOG_DURATION("SD", "Init", sd_start);
 
   randomSeed(analogRead(0));
 
   char path[64];
+  const unsigned long pick_start = millis();
   if (!sd_pick_random_bmp(path, sizeof(path))) {
-    Serial.println("No BMP files found");
+    LOGW("SD", "No BMP files found");
     enter_deep_sleep();
     return;
   }
+  LOG_DURATION("SD", "Pick", pick_start);
 
+  const unsigned long disp_start = millis();
   if (!it8951_renderer_init()) {
-    Serial.println("Display init failed");
+    LOGE("EINK", "Init failed");
     enter_deep_sleep();
     return;
   }
+  LOG_DURATION("EINK", "Init", disp_start);
 
-  Serial.print("Rendering ");
-  Serial.println(path);
+  LOGI("EINK", "Render path=%s", path);
 
+  const unsigned long render_start = millis();
   if (!it8951_render_bmp_from_sd(path)) {
-    Serial.println("Render failed");
+    LOGE("EINK", "Render failed");
+  } else {
+    LOG_DURATION("EINK", "Render", render_start);
   }
 
   it8951_renderer_hibernate();
+  LOGI("PHASE1", "Sleep %lus", (unsigned long)kSleepSeconds);
   enter_deep_sleep();
 }
 

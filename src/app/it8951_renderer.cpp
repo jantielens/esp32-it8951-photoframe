@@ -1,6 +1,7 @@
 #include "it8951_renderer.h"
 
 #include "board_config.h"
+#include "log_manager.h"
 
 #include <SD.h>
 #include <GxEPD2.h>
@@ -42,6 +43,7 @@ static uint32_t read32(File &f) {
 }
 
 static bool draw_bmp_16gray(File &file, int16_t x, int16_t y) {
+    const unsigned long start_ms = millis();
     if ((x >= display.WIDTH) || (y >= display.HEIGHT)) return false;
 
     bool valid = false;
@@ -103,6 +105,7 @@ static bool draw_bmp_16gray(File &file, int16_t x, int16_t y) {
             display.clearScreen();
 
             uint32_t row_position = flip ? image_offset + (height - h) * row_size : image_offset;
+            const unsigned long rows_start = millis();
             for (uint16_t row = 0; row < h; row++, row_position += row_size) {
                 uint32_t in_remain = row_size;
                 uint32_t in_idx = 0;
@@ -175,14 +178,22 @@ static bool draw_bmp_16gray(File &file, int16_t x, int16_t y) {
 
                 uint16_t yrow = y + (flip ? h - row - 1 : row);
                 display.writeNative(output_row_gray_buffer, nullptr, x, yrow, w, 1, false, false, false);
+
+                if ((row % 200) == 0) {
+                    LOGD("EINK", "Row %u/%u", (unsigned)row, (unsigned)h);
+                }
             }
+            LOG_DURATION("EINK", "Rows", rows_start);
 
             if (valid) {
+                const unsigned long refresh_start = millis();
                 display.refresh(false);
+                LOG_DURATION("EINK", "Refresh", refresh_start);
             }
         }
     }
 
+    LOG_DURATION("EINK", "BMP", start_ms);
     return valid;
 }
 
@@ -190,21 +201,23 @@ bool it8951_renderer_init() {
     if (g_display_ready) return true;
     display.init(115200);
     g_display_ready = true;
+    LOGI("EINK", "Init OK");
     return true;
 }
 
 bool it8951_render_bmp_from_sd(const char *path) {
     if (!path) return false;
     if (!g_display_ready && !it8951_renderer_init()) return false;
-
+    const unsigned long start_ms = millis();
     File file = SD.open(path, FILE_READ);
     if (!file) {
-        Serial.println("BMP open failed");
+        LOGE("EINK", "BMP open failed");
         return false;
     }
 
     const bool ok = draw_bmp_16gray(file, 0, 0);
     file.close();
+    LOG_DURATION("EINK", "RenderTotal", start_ms);
     return ok;
 }
 
