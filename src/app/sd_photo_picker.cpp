@@ -3,6 +3,11 @@
 #include "log_manager.h"
 
 #include <ctype.h>
+#include <vector>
+#include <algorithm>
+
+static constexpr size_t kMaxG4NameLen = 63;
+static constexpr uint32_t kInvalidIndex = 0xFFFFFFFFu;
 
 static bool ends_with_bmp_case_insensitive(const char *name) {
     if (!name) return false;
@@ -21,6 +26,7 @@ bool sd_photo_picker_init(SPIClass &spi, const SdCardPins &pins, uint32_t freque
     if (pins.power >= 0) {
         pinMode(pins.power, OUTPUT);
         digitalWrite(pins.power, HIGH);
+        delay(50);
     }
 
     spi.begin(pins.sck, pins.miso, pins.mosi, pins.cs);
@@ -66,4 +72,91 @@ bool sd_pick_random_bmp(char *out_path, size_t out_len) {
     LOG_DURATION("SD", "Scan", start_ms);
 
     return found;
+}
+
+static bool is_g4_file(const char *name) {
+    if (!name) return false;
+    const size_t len = strlen(name);
+    if (len < 3) return false;
+    return strcmp(name + (len - 3), ".g4") == 0;
+}
+
+static bool collect_g4_names(std::vector<String> &names) {
+    File root = SD.open("/");
+    if (!root) return false;
+    if (!root.isDirectory()) {
+        root.close();
+        return false;
+    }
+
+    File file = root.openNextFile();
+    while (file) {
+        if (!file.isDirectory()) {
+            const char *name = file.name();
+            if (is_g4_file(name)) {
+                const size_t len = strlen(name);
+                if (len <= kMaxG4NameLen) {
+                    names.push_back(String(name));
+                } else {
+                    LOGW("SD", "Skip long filename: %s", name);
+                }
+            }
+        }
+        file.close();
+        file = root.openNextFile();
+    }
+
+    root.close();
+    return true;
+}
+
+static void sort_names_kiss(std::vector<String> &names) {
+    std::sort(names.begin(), names.end(), [](const String &a, const String &b) {
+        return a.compareTo(b) < 0;
+    });
+}
+
+bool sd_pick_g4_image(
+    char *out_path,
+    size_t out_len,
+    SdImageSelectMode mode,
+    uint32_t last_index,
+    uint32_t *out_selected_index
+) {
+    if (!out_path || out_len == 0) return false;
+
+    std::vector<String> names;
+    if (!collect_g4_names(names)) {
+        LOGE("SD", "Failed to open SD root");
+        return false;
+    }
+
+    const uint32_t count = static_cast<uint32_t>(names.size());
+    if (count == 0) {
+        LOGW("SD", "No .g4 images found");
+        return false;
+    }
+
+    sort_names_kiss(names);
+
+    uint32_t index = 0;
+    if (mode == SdImageSelectMode::Random) {
+        index = static_cast<uint32_t>(random(count));
+    } else {
+        if (last_index == kInvalidIndex || last_index >= count) {
+            index = 0;
+        } else {
+            index = (last_index + 1) % count;
+        }
+    }
+
+    const String &name = names[index];
+    if (name.length() + 1 >= out_len) return false;
+    out_path[0] = '/';
+    memcpy(out_path + 1, name.c_str(), name.length() + 1);
+
+    if (out_selected_index) {
+        *out_selected_index = index;
+    }
+    return true;
 }

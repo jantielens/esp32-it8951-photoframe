@@ -203,6 +203,7 @@ Real-time device health monitoring integrated as a header badge with expandable 
 **Sections:**
 - **👋 Hello World**: Welcome message with customization tip
 - **⚙️ Sample Settings**: Example configuration field (dummy_setting)
+- **📸 Photo Cycle**: Sleep timeout, image selection mode, always-on toggle
 
 **Layout:** Two sections side-by-side on desktop (≥768px), stacked on mobile
 
@@ -995,6 +996,60 @@ Dismiss the currently displayed image and return to previous screen.
 **Notes:**
 - Returns to the screen that was active before image was displayed
 - Safe to call even if no image is currently shown
+
+### SD Image Management (G4)
+
+Manage `.g4` images stored in the SD card root. Files must be `.g4` and smaller than 2 MB.
+
+#### `GET /api/sd/images`
+
+List `.g4` images on the SD card (sorted by filename).
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "count": 3,
+  "files": ["a.g4", "b.g4", "c.g4"]
+}
+```
+
+#### `POST /api/sd/images`
+
+Upload a `.g4` file to SD (overwrites on conflict).
+
+**Request:**
+- Content-Type: `multipart/form-data`
+- File field: `file` (.g4)
+
+**Response (Success):**
+```json
+{
+  "success": true
+}
+```
+
+#### `DELETE /api/sd/images?name=<filename>`
+
+Delete a `.g4` file from SD.
+
+**Response (Success):**
+```json
+{
+  "success": true
+}
+```
+
+#### `POST /api/sd/images/display?name=<filename>`
+
+Display a `.g4` image immediately without waiting for the next boot cycle.
+
+**Response (Success):**
+```json
+{
+  "success": true
+}
+```
 
 ## Implementation Details
 

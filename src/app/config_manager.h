@@ -27,6 +27,8 @@
 #define CONFIG_DEVICE_NAME_MAX_LEN 32
 #define CONFIG_IP_STR_MAX_LEN 16
 #define CONFIG_DUMMY_MAX_LEN 64
+// Image selection mode ("random" or "sequential")
+#define CONFIG_IMAGE_SELECTION_MODE_MAX_LEN 12
 
 // MQTT settings
 #define CONFIG_MQTT_HOST_MAX_LEN 64
@@ -55,6 +57,12 @@ struct DeviceConfig {
     
     // Dummy setting (example for extensibility)
     char dummy_setting[CONFIG_DUMMY_MAX_LEN];
+
+    // Phase 2 settings
+    uint16_t sleep_timeout_seconds;  // default 60
+    char image_selection_mode[CONFIG_IMAGE_SELECTION_MODE_MAX_LEN];  // "random" or "sequential"
+    uint16_t long_press_ms;  // default 1500
+    bool always_on;  // default false
 
     // MQTT / Home Assistant integration settings (all optional)
     char mqtt_host[CONFIG_MQTT_HOST_MAX_LEN];

@@ -25,6 +25,10 @@
 #define KEY_DNS1           "dns1"
 #define KEY_DNS2           "dns2"
 #define KEY_DUMMY          "dummy"
+#define KEY_SLEEP_TIMEOUT  "sleep_to"
+#define KEY_IMAGE_SELECT   "img_sel"
+#define KEY_LONG_PRESS     "lp_ms"
+#define KEY_ALWAYS_ON      "always_on"
 #define KEY_MQTT_HOST      "mqtt_host"
 #define KEY_MQTT_PORT      "mqtt_port"
 #define KEY_MQTT_USER      "mqtt_user"
@@ -130,6 +134,10 @@ bool config_manager_load(DeviceConfig *config) {
         
         // Initialize defaults for fields that need sensible values even when no config exists
         config->backlight_brightness = 100;  // Default to full brightness
+        config->sleep_timeout_seconds = 60;
+        strlcpy(config->image_selection_mode, "random", CONFIG_IMAGE_SELECTION_MODE_MAX_LEN);
+        config->long_press_ms = 1500;
+        config->always_on = false;
         config->mqtt_port = 0;
         config->mqtt_interval_seconds = 0;
 
@@ -174,6 +182,15 @@ bool config_manager_load(DeviceConfig *config) {
     
     // Load dummy setting
     preferences.getString(KEY_DUMMY, config->dummy_setting, CONFIG_DUMMY_MAX_LEN);
+
+    // Load phase 2 settings
+    config->sleep_timeout_seconds = preferences.getUShort(KEY_SLEEP_TIMEOUT, 60);
+    preferences.getString(KEY_IMAGE_SELECT, config->image_selection_mode, CONFIG_IMAGE_SELECTION_MODE_MAX_LEN);
+    if (strlen(config->image_selection_mode) == 0) {
+        strlcpy(config->image_selection_mode, "random", CONFIG_IMAGE_SELECTION_MODE_MAX_LEN);
+    }
+    config->long_press_ms = preferences.getUShort(KEY_LONG_PRESS, 1500);
+    config->always_on = preferences.getBool(KEY_ALWAYS_ON, false);
 
     // Load MQTT settings (all optional)
     preferences.getString(KEY_MQTT_HOST, config->mqtt_host, CONFIG_MQTT_HOST_MAX_LEN);
@@ -251,6 +268,12 @@ bool config_manager_save(const DeviceConfig *config) {
     
     // Save dummy setting
     preferences.putString(KEY_DUMMY, config->dummy_setting);
+
+    // Save phase 2 settings
+    preferences.putUShort(KEY_SLEEP_TIMEOUT, config->sleep_timeout_seconds);
+    preferences.putString(KEY_IMAGE_SELECT, config->image_selection_mode);
+    preferences.putUShort(KEY_LONG_PRESS, config->long_press_ms);
+    preferences.putBool(KEY_ALWAYS_ON, config->always_on);
 
     // Save MQTT settings
     preferences.putString(KEY_MQTT_HOST, config->mqtt_host);
@@ -331,6 +354,11 @@ void config_manager_print(const DeviceConfig *config) {
     
     LOGI("Config", "WiFi SSID: %s", config->wifi_ssid);
     LOGI("Config", "WiFi Pass: %s", strlen(config->wifi_password) > 0 ? "***" : "(none)");
+
+    LOGI("Config", "Sleep timeout: %us", (unsigned)config->sleep_timeout_seconds);
+    LOGI("Config", "Image selection: %s", config->image_selection_mode);
+    LOGI("Config", "Long press: %ums", (unsigned)config->long_press_ms);
+    LOGI("Config", "Always-on: %s", config->always_on ? "enabled" : "disabled");
     
     if (strlen(config->fixed_ip) > 0) {
         LOGI("Config", "IP: %s", config->fixed_ip);

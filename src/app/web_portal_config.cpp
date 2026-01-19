@@ -90,6 +90,12 @@ void handleGetConfig(AsyncWebServerRequest *request) {
         // Dummy setting
         (*doc)["dummy_setting"] = current_config->dummy_setting;
 
+        // Phase 2 settings
+        (*doc)["sleep_timeout_seconds"] = current_config->sleep_timeout_seconds;
+        (*doc)["image_selection_mode"] = current_config->image_selection_mode;
+        (*doc)["long_press_ms"] = current_config->long_press_ms;
+        (*doc)["always_on"] = current_config->always_on;
+
         // MQTT settings (password not returned)
         (*doc)["mqtt_host"] = current_config->mqtt_host;
         (*doc)["mqtt_port"] = current_config->mqtt_port;
@@ -298,6 +304,41 @@ void handlePostConfig(AsyncWebServerRequest *request, uint8_t *data, size_t len,
     // Dummy setting - only update if field exists
     if (doc.containsKey("dummy_setting")) {
         strlcpy(current_config->dummy_setting, doc["dummy_setting"] | "", CONFIG_DUMMY_MAX_LEN);
+    }
+
+    // Phase 2 settings
+    if (doc.containsKey("sleep_timeout_seconds")) {
+        if (doc["sleep_timeout_seconds"].is<const char*>()) {
+            const char* v = doc["sleep_timeout_seconds"];
+            current_config->sleep_timeout_seconds = (uint16_t)atoi(v ? v : "0");
+        } else {
+            current_config->sleep_timeout_seconds = (uint16_t)(doc["sleep_timeout_seconds"] | 0);
+        }
+    }
+
+    if (doc.containsKey("image_selection_mode")) {
+        strlcpy(current_config->image_selection_mode, doc["image_selection_mode"] | "", CONFIG_IMAGE_SELECTION_MODE_MAX_LEN);
+        if (strlen(current_config->image_selection_mode) == 0) {
+            strlcpy(current_config->image_selection_mode, "random", CONFIG_IMAGE_SELECTION_MODE_MAX_LEN);
+        }
+    }
+
+    if (doc.containsKey("long_press_ms")) {
+        if (doc["long_press_ms"].is<const char*>()) {
+            const char* v = doc["long_press_ms"];
+            current_config->long_press_ms = (uint16_t)atoi(v ? v : "0");
+        } else {
+            current_config->long_press_ms = (uint16_t)(doc["long_press_ms"] | 0);
+        }
+    }
+
+    if (doc.containsKey("always_on")) {
+        if (doc["always_on"].is<const char*>()) {
+            const char* v = doc["always_on"];
+            current_config->always_on = (v && (strcmp(v, "1") == 0 || strcasecmp(v, "true") == 0 || strcasecmp(v, "on") == 0));
+        } else {
+            current_config->always_on = (bool)(doc["always_on"] | false);
+        }
     }
 
     // MQTT host

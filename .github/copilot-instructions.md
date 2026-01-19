@@ -123,6 +123,9 @@ All scripts use absolute paths via `SCRIPT_DIR` resolution - they work from any 
 - Return JSON responses with proper HTTP status codes
 - POST `/api/config` triggers device reboot (use `?no_reboot=1` to skip)
 - Partial config updates: Backend only updates fields present in JSON request via `doc.containsKey()`
+- Route ordering: register more specific routes before general/prefix routes (e.g., `/api/sd/images/display` before `/api/sd/images`) to avoid prefix-matching misroutes.
+
+
 
 **Health Monitoring**:
 - `/api/health` provides real-time metrics (CPU, memory, WiFi, temperature, uptime)

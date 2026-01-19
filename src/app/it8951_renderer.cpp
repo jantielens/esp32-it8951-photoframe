@@ -6,6 +6,7 @@
 #include <SD.h>
 #include <GxEPD2.h>
 #include <it8951/GxEPD2_it78_1872x1404.h>
+#include <esp_heap_caps.h>
 
 // ---------------------------------------------------------------------------
 // Display wiring (from board overrides)
@@ -17,14 +18,59 @@ static bool g_display_ready = false;
 static const uint16_t kInputBufferPixels = 1872;
 static const uint16_t kMaxRowWidth = 1872;
 static const uint16_t kMaxPalettePixels = 256;
-static const uint16_t kChunkRows = 8; // number of rows per writeNative
+static const uint16_t kChunkRows = 16; // number of rows per writeNative
+static const size_t kInputBufferBytes = 3 * kInputBufferPixels;
 
-static uint8_t input_buffer[3 * kInputBufferPixels];
-static uint8_t output_rows_gray_buffer[kMaxRowWidth * kChunkRows];
-static uint8_t grey_palette_buffer[kMaxPalettePixels];
-static uint8_t raw_row_buffer[kMaxRowWidth];
-static uint8_t g4_row_buffer[kMaxRowWidth / 2];
-static uint8_t g4_chunk_buffer[(kMaxRowWidth / 2) * kChunkRows];
+static uint8_t *input_buffer = nullptr;
+static uint8_t *output_rows_gray_buffer = nullptr;
+static uint8_t *grey_palette_buffer = nullptr;
+static uint8_t *raw_row_buffer = nullptr;
+static uint8_t *g4_row_buffer = nullptr;
+static uint8_t *g4_chunk_buffer = nullptr;
+
+static bool buffers_ready = false;
+static bool buffers_logged = false;
+
+static void *alloc_buffer(size_t bytes, const char *label) {
+    void *ptr = nullptr;
+    if (psramFound()) {
+        ptr = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
+    if (!ptr) {
+        ptr = heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (!ptr) {
+        LOGE("EINK", "Buffer alloc failed: %s (%u bytes)", label, (unsigned)bytes);
+    }
+    return ptr;
+}
+
+static bool ensure_buffers() {
+    if (buffers_ready) return true;
+
+    input_buffer = static_cast<uint8_t*>(alloc_buffer(kInputBufferBytes, "input"));
+    output_rows_gray_buffer = static_cast<uint8_t*>(alloc_buffer(kMaxRowWidth * kChunkRows, "rows"));
+    grey_palette_buffer = static_cast<uint8_t*>(alloc_buffer(kMaxPalettePixels, "palette"));
+    raw_row_buffer = static_cast<uint8_t*>(alloc_buffer(kMaxRowWidth, "raw"));
+    g4_row_buffer = static_cast<uint8_t*>(alloc_buffer(kMaxRowWidth / 2, "g4_row"));
+    g4_chunk_buffer = static_cast<uint8_t*>(alloc_buffer((kMaxRowWidth / 2) * kChunkRows, "g4_chunk"));
+
+    buffers_ready = input_buffer && output_rows_gray_buffer && grey_palette_buffer && raw_row_buffer && g4_row_buffer && g4_chunk_buffer;
+    if (buffers_ready && !buffers_logged) {
+        buffers_logged = true;
+        auto log_buf = [](const char *label, const void *ptr) {
+            const bool is_psram = ptr && esp_ptr_external_ram(ptr);
+            LOGI("EINK", "%s buffer: %s", label, is_psram ? "PSRAM" : "internal");
+        };
+        log_buf("input", input_buffer);
+        log_buf("rows", output_rows_gray_buffer);
+        log_buf("palette", grey_palette_buffer);
+        log_buf("raw", raw_row_buffer);
+        log_buf("g4_row", g4_row_buffer);
+        log_buf("g4_chunk", g4_chunk_buffer);
+    }
+    return buffers_ready;
+}
 
 // IT8951 I80 command constants (mirroring GxEPD2 driver)
 static const uint16_t IT8951_TCON_SYS_RUN = 0x0001;
@@ -210,7 +256,7 @@ static bool draw_bmp_16gray(File &file, int16_t x, int16_t y) {
                 file.seek(row_position);
                 for (uint16_t col = 0; col < w; col++) {
                     if (in_idx >= in_bytes) {
-                        in_bytes = file.read(input_buffer, in_remain > sizeof(input_buffer) ? sizeof(input_buffer) : in_remain);
+                        in_bytes = file.read(input_buffer, in_remain > kInputBufferBytes ? kInputBufferBytes : in_remain);
                         in_remain -= in_bytes;
                         in_idx = 0;
                     }
@@ -279,6 +325,10 @@ static bool draw_bmp_16gray(File &file, int16_t x, int16_t y) {
                 if ((row % 200) == 0) {
                     LOGD("EINK", "Row %u/%u", (unsigned)row, (unsigned)h);
                 }
+
+                if ((row % 32) == 0) {
+                    yield();
+                }
             }
             LOG_DURATION("EINK", "Rows", rows_start);
 
@@ -315,6 +365,10 @@ static bool render_raw_rows(File &file, uint16_t w, uint16_t h) {
         if ((row % 200) == 0) {
             LOGD("EINK", "RAW Row %u/%u", (unsigned)row, (unsigned)h);
         }
+
+        if ((row % 32) == 0) {
+            yield();
+        }
     }
     LOG_DURATION("EINK", "Rows", rows_start);
     return true;
@@ -345,6 +399,10 @@ static bool render_g4_rows(File &file, uint16_t w, uint16_t h) {
         if ((row % 200) == 0) {
             LOGD("EINK", "G4 Row %u/%u", (unsigned)row, (unsigned)h);
         }
+
+        if ((row % 32) == 0) {
+            yield();
+        }
     }
     LOG_DURATION("EINK", "Rows", rows_start);
     return true;
@@ -352,6 +410,10 @@ static bool render_g4_rows(File &file, uint16_t w, uint16_t h) {
 
 bool it8951_renderer_init() {
     if (g_display_ready) return true;
+    if (!ensure_buffers()) {
+        LOGE("EINK", "Init failed (buffers)");
+        return false;
+    }
     display.init(115200);
     g_display_ready = true;
     LOGI("EINK", "Init OK");
@@ -376,6 +438,7 @@ bool it8951_render_bmp_from_sd(const char *path) {
 
 bool it8951_convert_bmp_to_raw_g4(const char *bmp_path, const char *raw_path, const char *g4_path) {
     if (!bmp_path || !raw_path || !g4_path) return false;
+    if (!ensure_buffers()) return false;
     File bmp = SD.open(bmp_path, FILE_READ);
     if (!bmp) {
         LOGE("EINK", "BMP open failed path=%s", bmp_path);
@@ -465,7 +528,7 @@ bool it8951_convert_bmp_to_raw_g4(const char *bmp_path, const char *raw_path, co
 
         for (uint16_t col = 0; col < width; col++) {
             if (in_idx >= in_bytes) {
-                in_bytes = bmp.read(input_buffer, in_remain > sizeof(input_buffer) ? sizeof(input_buffer) : in_remain);
+                in_bytes = bmp.read(input_buffer, in_remain > kInputBufferBytes ? kInputBufferBytes : in_remain);
                 in_remain -= in_bytes;
                 in_idx = 0;
             }

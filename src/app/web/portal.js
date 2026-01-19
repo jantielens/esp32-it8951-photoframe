@@ -12,12 +12,15 @@ const API_MODE = '/api/mode';
 const API_UPDATE = '/api/update';
 const API_REBOOT = '/api/reboot';
 const API_VERSION = '/api/info'; // Used for connection polling
+const API_SD_IMAGES = '/api/sd/images';
+const API_SD_IMAGES_DISPLAY = '/api/sd/images/display';
 
 let selectedFile = null;
 let portalMode = 'full'; // 'core' or 'full'
 let currentPage = 'home'; // Current page: 'home', 'network', or 'firmware'
 
 let deviceInfoCache = null;
+let sdSelectedFile = null;
 
 /**
  * Scroll input into view when focused (prevents mobile keyboard from covering it)
@@ -90,6 +93,20 @@ function showMessage(message, type = 'info') {
     setTimeout(() => {
         statusDiv.style.display = 'none';
     }, 5000);
+}
+
+function showBusyOverlay(message) {
+    const overlay = document.getElementById('form-loading-overlay');
+    if (!overlay) return;
+    const msg = document.getElementById('form-loading-message');
+    if (msg && message) msg.textContent = message;
+    overlay.style.display = 'flex';
+}
+
+function hideBusyOverlay() {
+    const overlay = document.getElementById('form-loading-overlay');
+    if (!overlay) return;
+    overlay.style.display = 'none';
 }
 
 /**
@@ -595,6 +612,11 @@ async function loadConfig() {
         // Dummy setting
         setValueIfExists('dummy_setting', config.dummy_setting);
 
+        // Photo cycle settings
+        setValueIfExists('sleep_timeout_seconds', config.sleep_timeout_seconds);
+        setValueIfExists('image_selection_mode', config.image_selection_mode);
+        setCheckedIfExists('always_on', config.always_on);
+
         // MQTT settings
         setValueIfExists('mqtt_host', config.mqtt_host);
         setValueIfExists('mqtt_port', config.mqtt_port);
@@ -667,6 +689,7 @@ function extractFormFields(formData) {
     const config = {};
     const fields = ['wifi_ssid', 'wifi_password', 'device_name', 'fixed_ip', 
                     'subnet_mask', 'gateway', 'dns1', 'dns2', 'dummy_setting',
+                    'sleep_timeout_seconds', 'image_selection_mode', 'always_on',
                     'mqtt_host', 'mqtt_port', 'mqtt_username', 'mqtt_password', 'mqtt_interval_seconds',
                     'basic_auth_enabled', 'basic_auth_username', 'basic_auth_password',
                     'backlight_brightness',
@@ -937,6 +960,163 @@ function handleFileSelect(event) {
     }
 }
 
+// ===== SD IMAGE MANAGEMENT =====
+
+function sdRenderList(files) {
+    const listEl = document.getElementById('sd-images-list');
+    const emptyEl = document.getElementById('sd-images-empty');
+    if (!listEl) return;
+
+    listEl.innerHTML = '';
+
+    if (!files || files.length === 0) {
+        if (emptyEl) emptyEl.style.display = 'block';
+        return;
+    }
+    if (emptyEl) emptyEl.style.display = 'none';
+
+    const table = document.createElement('table');
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+    table.innerHTML = '<thead><tr>' +
+        '<th style="text-align:left; padding:8px 4px; font-size:13px; color:#666;">File</th>' +
+        '<th style="text-align:right; padding:8px 4px; font-size:13px; color:#666;">Actions</th>' +
+        '</tr></thead>';
+
+    const tbody = document.createElement('tbody');
+    files.forEach(name => {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+            `<td style="padding:8px 4px; border-top: 1px solid #eee; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">${name}</td>` +
+            `<td style="padding:8px 4px; border-top: 1px solid #eee; text-align:right;">` +
+            `<button type="button" class="btn" data-action="display" data-name="${name}" style="margin-right:6px;">Display</button>` +
+            `<button type="button" class="btn btn-danger" data-action="delete" data-name="${name}">Delete</button>` +
+            `</td>`;
+        tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    listEl.appendChild(table);
+}
+
+async function sdLoadImages() {
+    try {
+        const resp = await fetch(API_SD_IMAGES, { cache: 'no-cache' });
+        if (!resp.ok) throw new Error('Failed to load SD images');
+        const data = await resp.json();
+        sdRenderList(data.files || []);
+    } catch (e) {
+        console.error('SD images load failed:', e);
+        sdRenderList([]);
+    }
+}
+
+function sdHandleFileSelect(event) {
+    sdSelectedFile = event.target.files[0] || null;
+    const uploadBtn = document.getElementById('sd-image-upload-btn');
+    if (!uploadBtn) return;
+
+    if (sdSelectedFile && sdSelectedFile.name.endsWith('.g4')) {
+        uploadBtn.disabled = false;
+        showMessage(`Selected: ${sdSelectedFile.name} (${(sdSelectedFile.size / 1024).toFixed(1)} KB)`, 'info');
+    } else {
+        uploadBtn.disabled = true;
+        if (sdSelectedFile) {
+            showMessage('Please select a .g4 file', 'error');
+        }
+        sdSelectedFile = null;
+    }
+}
+
+async function sdUploadImage() {
+    if (!sdSelectedFile) {
+        showMessage('Please select a .g4 file', 'error');
+        return;
+    }
+
+    const uploadBtn = document.getElementById('sd-image-upload-btn');
+    const fileInput = document.getElementById('sd-image-file');
+    if (uploadBtn) uploadBtn.disabled = true;
+    if (fileInput) fileInput.disabled = true;
+
+    const formData = new FormData();
+    formData.append('file', sdSelectedFile);
+
+    showBusyOverlay('Uploading image...');
+
+    try {
+        const resp = await fetch(API_SD_IMAGES, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!resp.ok) {
+            throw new Error('Upload failed');
+        }
+
+        showMessage('Upload complete', 'success');
+        sdSelectedFile = null;
+        if (fileInput) fileInput.value = '';
+        await sdLoadImages();
+    } catch (e) {
+        console.error('Upload error:', e);
+        showMessage(`Upload failed: ${e.message}`, 'error');
+    } finally {
+        hideBusyOverlay();
+        if (uploadBtn) uploadBtn.disabled = true;
+        if (fileInput) fileInput.disabled = false;
+    }
+}
+
+async function sdDeleteImage(name) {
+    if (!name) return;
+    if (!confirm(`Delete ${name}?`)) return;
+
+    try {
+        const resp = await fetch(`${API_SD_IMAGES}?name=${encodeURIComponent(name)}`, {
+            method: 'DELETE'
+        });
+        if (!resp.ok) throw new Error('Delete failed');
+        showMessage('Deleted', 'success');
+        await sdLoadImages();
+    } catch (e) {
+        console.error('Delete error:', e);
+        showMessage(`Delete failed: ${e.message}`, 'error');
+    }
+}
+
+async function sdDisplayImage(name) {
+    if (!name) return;
+    try {
+        showBusyOverlay('Displaying image...');
+        const resp = await fetch(`${API_SD_IMAGES_DISPLAY}?name=${encodeURIComponent(name)}`, {
+            method: 'POST'
+        });
+        if (!resp.ok) throw new Error('Display failed');
+        showMessage('Image displayed', 'success');
+    } catch (e) {
+        console.error('Display error:', e);
+        showMessage(`Display failed: ${e.message}`, 'error');
+    } finally {
+        hideBusyOverlay();
+    }
+}
+
+function sdBindActions() {
+    const listEl = document.getElementById('sd-images-list');
+    if (!listEl) return;
+
+    listEl.addEventListener('click', (e) => {
+        const target = e.target;
+        if (!(target instanceof HTMLElement)) return;
+        const action = target.getAttribute('data-action');
+        const name = target.getAttribute('data-name');
+        if (!action || !name) return;
+        if (action === 'delete') sdDeleteImage(name);
+        if (action === 'display') sdDisplayImage(name);
+    });
+}
+
 /**
  * Upload firmware file to device
  */
@@ -1181,6 +1361,21 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadBtn.addEventListener('click', uploadFirmware);
     }
 
+    const sdFile = document.getElementById('sd-image-file');
+    if (sdFile) {
+        sdFile.addEventListener('change', sdHandleFileSelect);
+    }
+
+    const sdUploadBtn = document.getElementById('sd-image-upload-btn');
+    if (sdUploadBtn) {
+        sdUploadBtn.addEventListener('click', sdUploadImage);
+    }
+
+    const sdRefreshBtn = document.getElementById('sd-images-refresh');
+    if (sdRefreshBtn) {
+        sdRefreshBtn.addEventListener('click', sdLoadImages);
+    }
+
     // Firmware page: GitHub Pages link is populated in updateOnlineUpdateSection()
     
     const deviceName = document.getElementById('device_name');
@@ -1219,6 +1414,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     loadVersion();
+
+    // SD images section (home page only)
+    sdBindActions();
+    if (document.getElementById('sd-images-section')) {
+        sdLoadImages();
+    }
     
     // Initialize health widget
     initHealthWidget();

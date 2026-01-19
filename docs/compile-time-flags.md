@@ -21,7 +21,7 @@ This document is a template. Sections marked with `COMPILE_FLAG_REPORT` markers 
 ## Flags (generated)
 
 <!-- BEGIN COMPILE_FLAG_REPORT:FLAGS -->
-Total flags: 41
+Total flags: 42
 
 ### Features (HAS_*)
 
@@ -39,6 +39,7 @@ Total flags: 41
 
 ### Hardware (Pins)
 
+- **BUTTON_PIN** default: `-1` — Button support (wakeup + long press).
 - **IT8951_BUSY_PIN** default: `(no default)` — IT8951 busy pin.
 - **IT8951_CS_PIN** default: `(no default)` — IT8951 chip select (CS). Use default SS pin (matches sample wiring).
 - **IT8951_DC_PIN** default: `(no default)` — IT8951 data/command pin.
@@ -174,9 +175,12 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/board_config.h
   - src/app/touch_drivers.cpp
   - src/app/touch_manager.cpp
+- **BUTTON_PIN**
+  - src/app/board_config.h
 - **ESP_PANEL_SWAPBUF_PREFER_INTERNAL**
   - src/app/board_config.h
 - **HEALTH_HISTORY_ENABLED**
+  - src/app/app.ino
   - src/app/board_config.h
   - src/app/health_history.cpp
   - src/app/web_portal_device_api.cpp

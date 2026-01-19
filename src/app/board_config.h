@@ -94,6 +94,11 @@
 // #ifndef BUTTON_PIN
 // #define BUTTON_PIN 0
 // #endif
+
+// Button support (wakeup + long press).
+#ifndef BUTTON_PIN
+#define BUTTON_PIN -1
+#endif
 //
 // Battery Monitor:
 // #ifndef HAS_BATTERY_MONITOR

@@ -56,7 +56,7 @@ PROJECT_DISPLAY_NAME="ESP32 Photoframe IT8951"
 #   ["cyd-v2"]="esp32:esp32:esp32"                                                # CYD display v2 (same FQBN as classic ESP32)
 
 declare -A FQBN_TARGETS=(
-    ["esp32s2-photoframe-it8951"]="esp32:esp32:esp32s2:CDCOnBoot=default,PartitionScheme=no_fs"
+    ["esp32s2-photoframe-it8951"]="esp32:esp32:esp32s2:CDCOnBoot=default,PartitionScheme=no_fs,PSRAM=enabled"
 )
 
 # Default board (used when only one board is configured)

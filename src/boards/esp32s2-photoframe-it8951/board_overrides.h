@@ -15,7 +15,7 @@
 #define HAS_TOUCH false
 #define HAS_MQTT false
 #define HAS_IMAGE_API false
-#define HEALTH_HISTORY_ENABLED 0
+#define HEALTH_HISTORY_ENABLED 1
 
 // ---------------------------------------------------------------------------
 // SD Card (HSPI) - from /sample
@@ -44,5 +44,10 @@
 #define IT8951_BUSY_PIN 4
 // IT8951 VCOM setting from the sample wiring.
 #define IT8951_VCOM 1553
+
+// ---------------------------------------------------------------------------
+// Button (wakeup + long press)
+// ---------------------------------------------------------------------------
+#define BUTTON_PIN 21
 
 #endif // BOARD_OVERRIDES_PHOTOFRAME_IT8951_H

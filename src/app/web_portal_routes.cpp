@@ -4,6 +4,7 @@
 #include "web_portal_config.h"
 #include "web_portal_device_api.h"
 #include "web_portal_display.h"
+#include "web_portal_sd_images.h"
 #include "web_portal_firmware.h"
 #include "web_portal_ota.h"
 #include "web_portal_pages.h"
@@ -125,5 +126,34 @@ void web_portal_register_routes(AsyncWebServer* server) {
         handleOTAUpload
     );
     registerOptions("/api/update");
+
+    // SD image management
+    // IMPORTANT: register /api/sd/images/display before /api/sd/images to avoid
+    // prefix-matching routing that can misroute display requests to the list handler.
+    registerOptions("/api/sd/images/display");
+    server->on(
+        "/api/sd/images/display",
+        HTTP_ANY,
+        [](AsyncWebServerRequest *request) {
+            if (!portal_auth_gate(request)) return;
+            if (request->method() == HTTP_GET || request->method() == HTTP_POST) {
+                handleDisplaySdImage(request);
+                return;
+            }
+            request->send(405, "application/json", "{\"success\":false,\"message\":\"Method not allowed\"}");
+        }
+    );
+
+    registerOptions("/api/sd/images");
+    server->on("/api/sd/images", HTTP_GET, handleGetSdImages);
+    server->on(
+        "/api/sd/images",
+        HTTP_POST,
+        [](AsyncWebServerRequest *request) {
+            if (!portal_auth_gate(request)) return;
+        },
+        handleUploadSdImage
+    );
+    server->on("/api/sd/images", HTTP_DELETE, handleDeleteSdImage);
 
 }

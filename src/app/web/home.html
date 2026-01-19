@@ -27,8 +27,60 @@
                     <input type="text" id="dummy_setting" name="dummy_setting" maxlength="63">
                     <small>Example setting for demonstration</small>
                 </div>
+
+                <hr style="border: none; border-top: 1px solid #e5e5ea; margin: 18px 0;">
+
+                <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #1d1d1f;">📸 Photo Cycle</h3>
+
+                <div class="form-group">
+                    <label for="sleep_timeout_seconds">Sleep Timeout (seconds)</label>
+                    <input type="number" id="sleep_timeout_seconds" name="sleep_timeout_seconds" min="1" max="65535" placeholder="60">
+                    <small>How long the device stays awake after showing an image.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="image_selection_mode">Image Selection Mode</label>
+                    <select id="image_selection_mode" name="image_selection_mode">
+                        <option value="random">Random</option>
+                        <option value="sequential">Sequential (sorted)</option>
+                    </select>
+                    <small>Sequential uses filename order. Random picks any image.</small>
+                </div>
+
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="always_on" name="always_on">
+                        Always-on mode (no deep sleep)
+                    </label>
+                    <small>Keeps the portal running and refreshes images on the timeout interval.</small>
+                </div>
             </section>
             </div>
+
+            <!-- SD Image Management (G4) -->
+            <section class="section" id="sd-images-section">
+                <h2>🖼️ SD Images (G4)</h2>
+
+                <div class="form-group">
+                    <label for="sd-image-file">Upload .g4 Image</label>
+                    <input type="file" id="sd-image-file" accept=".g4" class="file-input">
+                    <small>Max 2 MB. Upload overwrites on name conflict.</small>
+                </div>
+                <button type="button" id="sd-image-upload-btn" class="btn btn-primary" disabled>Upload</button>
+
+                <hr style="border: none; border-top: 1px solid #e5e5ea; margin: 18px 0;">
+
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                    <div>
+                        <h3 style="margin: 0; font-size: 16px; color: #1d1d1f;">Stored Images</h3>
+                        <small>Click Display to show immediately.</small>
+                    </div>
+                    <button type="button" id="sd-images-refresh" class="btn">Refresh</button>
+                </div>
+
+                <div id="sd-images-empty" style="display:none; margin-top: 12px; color: #666;">No .g4 images found.</div>
+                <div id="sd-images-list" style="margin-top: 12px;"></div>
+            </section>
 
             <!-- Display Settings Section (hidden if no backlight support) -->
             <section class="section" id="display-settings-section" style="display:none;">
