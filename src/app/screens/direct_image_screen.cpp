@@ -1,7 +1,7 @@
 /*
  * Direct Image Screen Implementation
  * 
- * Blank black LVGL screen for strip-by-strip image display.
+ * Direct image session for strip-by-strip image display.
  * Images are decoded and written directly to LCD hardware.
  */
 
@@ -15,7 +15,7 @@
 #include <Arduino.h>
 
 DirectImageScreen::DirectImageScreen(DisplayManager* mgr) 
-    : manager(mgr), screen_obj(nullptr), session_active(false), visible(false) {
+    : manager(mgr), session_active(false), visible(false) {
     // Constructor - member variables initialized in initializer list
 }
 
@@ -24,19 +24,8 @@ DirectImageScreen::~DirectImageScreen() {
 }
 
 void DirectImageScreen::create() {
-    if (screen_obj) return;  // Already created
-
     LOGI("DIRIMG", "Create start");
-    
-    // Create screen object with solid black background
-    // This blank screen prevents LVGL from rendering while we write directly to LCD
-    screen_obj = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(screen_obj, lv_color_hex(0x000000), 0);  // Black background
-    lv_obj_set_style_bg_opa(screen_obj, LV_OPA_COVER, 0);  // Fully opaque
-    
-    // Disable scrollbars
-    lv_obj_clear_flag(screen_obj, LV_OBJ_FLAG_SCROLLABLE);
-    
+
     // Set display driver for strip decoder
     if (manager) {
         decoder.setDisplayDriver(manager->getDriver());
@@ -53,12 +42,6 @@ void DirectImageScreen::destroy() {
         end_strip_session();
     }
     
-    // Delete screen
-    if (screen_obj) {
-        lv_obj_del(screen_obj);
-        screen_obj = nullptr;
-    }
-    
     LOGI("DIRIMG", "Destroy complete");
 }
 
@@ -67,33 +50,29 @@ void DirectImageScreen::update() {
     if (visible && is_timeout_expired()) {
         LOGI("DIRIMG", "Timeout expired, returning to previous screen");
 
-        // Clean up our state while we're still running on the LVGL task.
-        // The actual screen switch is deferred in DisplayManager.
+        // Clean up our state before returning to splash.
         if (session_active) {
             end_strip_session();
         }
         visible = false;
         display_start_time = 0;
 
-        // Return to previous screen (the one before image was shown)
+        // Return to splash
         if (manager) {
-            manager->returnToPreviousScreen();
+            manager->showSplash();
+            manager->renderNow();
         }
     }
 }
 
 void DirectImageScreen::show() {
-    if (!screen_obj) {
-        create();
-    }
-    
-    lv_scr_load(screen_obj);
+    create();
     visible = true;
 
-    // Start the timeout when the screen is actually shown.
+    // Start the timeout when the session is shown.
     // Using an uploader-provided start time (captured earlier during HTTP upload)
-    // can cause rapid thrashing if the LVGL task is delayed and the timeout elapses
-    // before the screen becomes visible.
+    // can cause rapid thrashing if the update loop is delayed and the timeout elapses
+    // before the session becomes visible.
     display_start_time = millis();
     
     LOGI("DIRIMG", "Show (timeout: %lums)", display_timeout_ms);
@@ -186,7 +165,7 @@ bool DirectImageScreen::is_timeout_expired() {
     const unsigned long now = millis();
 
     // If start time is unset, or is slightly ahead of 'now' (possible when a
-    // different task updates start_time and the LVGL task checks it before the
+    // different task updates start_time and the update loop checks it before the
     // tick counter advances), rebase instead of underflowing.
     if (display_start_time == 0 || display_start_time > now) {
         display_start_time = now;

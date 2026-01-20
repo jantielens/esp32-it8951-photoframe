@@ -1,19 +1,16 @@
 // ============================================================================
-// Screen Compilation Unit
+// Screen/Session Compilation Unit
 // ============================================================================
-// Single compilation unit for all screen implementations.
-// This ensures screen .cpp files are compiled with correct build flags
-// while keeping them organized in the screens/ subdirectory.
-//
-// Note: Display driver .cpp files are included in display_manager.cpp,
-// not here, since the display manager is responsible for driver lifecycle.
+// Arduino only compiles .cpp files in the sketch root.
+// This unit pulls in optional screen/session implementations from subfolders.
 
 #include "board_config.h"
 
 #if HAS_DISPLAY
 
-// Include all screen implementations
-#include "screens/splash_screen.cpp"
+#if HAS_IMAGE_API
+#include "screens/direct_image_screen.cpp"
+#endif
 
 #endif // HAS_DISPLAY
 

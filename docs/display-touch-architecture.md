@@ -20,18 +20,46 @@ This document describes the display and touch subsystem architecture, design pat
 
 > Note: This project targets IT8951 e‑ink only. Legacy LCD examples below are historical and will be pruned.
 
-The display and touch subsystem is built on four main pillars:
+The display and touch subsystem is built on three main pillars:
 
 1. **Display HAL** - Isolates display hardware library specifics
 2. **Touch HAL** - Isolates touch controller library specifics
-3. **Screen Pattern** - Base class for creating reusable UI screens
-4. **Manager Classes** - Centralized management of hardware, LVGL, and lifecycle
+3. **Manager Classes** - Centralized management of hardware and UI lifecycle
 
 **Key Technologies:**
-- **LVGL 8.4** - Embedded graphics library
+- **E‑ink UI renderer** - Lightweight, LVGL‑free splash/progress drawing
 - **IT8951 + GxEPD2** - E‑ink panel driver (7.8" Waveshare)
 - **Optional touch drivers** - Future expansion
-- **Deterministic rendering** - Explicit `renderNow()` calls (no default background task)
+- **Deterministic rendering** - Explicit `renderNow()` calls (no background task)
+
+## Current Architecture (LVGL‑free)
+
+LVGL has been removed. The display stack now uses a small UI renderer that draws into a 1bpp canvas
+and presents packed G4 buffers via the display HAL. This keeps the UI minimal and e‑ink friendly.
+
+**Display HAL (current)**
+
+```cpp
+class DisplayDriver {
+public:
+    virtual ~DisplayDriver() = default;
+    virtual void init() = 0;
+    virtual int width() = 0;
+    virtual int height() = 0;
+    virtual bool isBusy() const = 0;
+    virtual bool presentG4Full(const uint8_t* g4, bool fullRefresh) = 0;
+    virtual bool presentG4Region(const uint8_t* g4, uint16_t x, uint16_t y,
+                                 uint16_t w, uint16_t h, bool fullRefresh) = 0;
+    virtual uint32_t minPresentIntervalMs() const { return 0; }
+};
+```
+
+**UI flow (current)**
+- `display_manager_set_splash_status()` updates UI state.
+- `display_manager_render_now()` draws and presents the UI.
+- No background rendering task is required.
+
+> Legacy sections below predate the LVGL removal and are retained for historical context.
 
 ## Architecture Layers
 

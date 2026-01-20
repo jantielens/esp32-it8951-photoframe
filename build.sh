@@ -163,7 +163,7 @@ build_board() {
     if [[ -d "$board_override_dir" ]]; then
         echo -e "${YELLOW}Config:    Using board-specific overrides from src/boards/$board_name/${NC}"
         # Add include path and define BOARD_HAS_OVERRIDE to trigger board_overrides.h inclusion
-        # Important: apply to BOTH C++ and C compilation units (LVGL is built as C).
+        # Important: apply to BOTH C++ and C compilation units (some libs compile as C).
         # Sanitize board name for valid C++ macro (alphanumeric + underscore only)
         board_macro="BOARD_${board_name^^}"
         board_macro="${board_macro//[^A-Z0-9_]/_}"
@@ -243,19 +243,9 @@ build_board() {
     echo ""
 }
 
-# Generate LVGL PNG assets (only when building for a display-enabled board)
-if should_generate_png_assets "$TARGET_BOARD"; then
-    echo "Generating LVGL PNG assets from assets/png..."
-    python3 "$SCRIPT_DIR/tools/png2lvgl_assets.py" \
-        "$SCRIPT_DIR/assets/png" \
-        "$SCRIPT_DIR/src/app/png_assets.cpp" \
-        "$SCRIPT_DIR/src/app/png_assets.h" \
-        --prefix "img_"
-    echo ""
-else
-    echo "Skipping PNG asset generation (no display build or no PNGs)."
-    echo ""
-fi
+# PNG assets are LVGL-specific; skip generation for the LVGL-free UI.
+echo "Skipping PNG asset generation (LVGL removed)."
+echo ""
 
 # Generate web assets (once for all builds)
 echo "Generating web assets..."

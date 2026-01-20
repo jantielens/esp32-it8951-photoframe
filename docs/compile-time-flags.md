@@ -21,13 +21,13 @@ This document is a template. Sections marked with `COMPILE_FLAG_REPORT` markers 
 ## Flags (generated)
 
 <!-- BEGIN COMPILE_FLAG_REPORT:FLAGS -->
-Total flags: 45
+Total flags: 43
 
 ### Features (HAS_*)
 
 - **HAS_BACKLIGHT** default: `false` — Enable backlight control (typically via PWM).
 - **HAS_BUILTIN_LED** default: `false` — Enable built-in status LED support.
-- **HAS_DISPLAY** default: `false` — Enable display + LVGL UI support.
+- **HAS_DISPLAY** default: `false` — Enable display support.
 - **HAS_IMAGE_API** default: `false` — Enable Image API endpoints (JPEG upload/download/display).
 - **HAS_MQTT** default: `true` — Enable MQTT and Home Assistant integration.
 - **HAS_TOUCH** default: `false` — Enable touch input support.
@@ -66,8 +66,6 @@ Total flags: 45
 - **IMAGE_API_MAX_SIZE_BYTES** default: `(100 * 1024)` — Max bytes accepted for full image uploads (JPEG).
 - **IMAGE_API_MAX_TIMEOUT_MS** default: `(86400UL * 1000UL)` — Maximum image display timeout in milliseconds.
 - **IMAGE_STRIP_BATCH_MAX_ROWS** default: `16` — Max rows batched per LCD transaction when decoding JPEG strips.
-- **LVGL_BUFFER_PREFER_INTERNAL** default: `false` — Prefer internal RAM over PSRAM for LVGL draw buffer allocation.
-- **LVGL_TICK_PERIOD_MS** default: `5` — LVGL tick period in milliseconds.
 - **MEMORY_TRIPWIRE_INTERNAL_MIN_BYTES** default: `0` — Default: disabled (0). Enable per-board if you want early warning logs.
 - **WEB_PORTAL_CONFIG_BODY_TIMEOUT_MS** default: `5000` — Timeout for an incomplete /api/config upload (ms) before freeing the buffer.
 - **WEB_PORTAL_CONFIG_MAX_JSON_BYTES** default: `4096` — Max JSON body size accepted by /api/config.
@@ -139,7 +137,6 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/screens.cpp
   - src/app/screens/lvgl_image_screen.cpp
   - src/app/screens/lvgl_image_screen.h
-  - src/app/touch_manager.cpp
   - src/app/web_portal.cpp
   - src/app/web_portal_config.cpp
   - src/app/web_portal_device_api.cpp
@@ -148,6 +145,8 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/web_portal_routes.cpp
 - **HAS_IMAGE_API**
   - src/app/board_config.h
+  - src/app/display_manager.cpp
+  - src/app/display_manager.h
   - src/app/image_api.cpp
   - src/app/image_api.h
   - src/app/jpeg_preflight.cpp
@@ -155,6 +154,7 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/lv_conf.h
   - src/app/lvgl_jpeg_decoder.cpp
   - src/app/lvgl_jpeg_decoder.h
+  - src/app/screens.cpp
   - src/app/screens/direct_image_screen.cpp
   - src/app/screens/direct_image_screen.h
   - src/app/screens/lvgl_image_screen.cpp
@@ -227,10 +227,6 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 - **LED_ACTIVE_HIGH**
   - src/app/board_config.h
 - **LED_PIN**
-  - src/app/board_config.h
-- **LVGL_BUFFER_PREFER_INTERNAL**
-  - src/app/board_config.h
-- **LVGL_TICK_PERIOD_MS**
   - src/app/board_config.h
 - **MEMORY_TRIPWIRE_CHECK_INTERVAL_MS**
   - src/app/board_config.h

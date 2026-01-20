@@ -169,7 +169,7 @@
 // ============================================================================
 // Display Configuration
 // ============================================================================
-// Enable display + LVGL UI support.
+// Enable display support.
 #ifndef HAS_DISPLAY
 #define HAS_DISPLAY false
 #endif
@@ -198,23 +198,6 @@
 // Minimum interval between e-ink refreshes.
 #ifndef EINK_MIN_PRESENT_INTERVAL_MS
 #define EINK_MIN_PRESENT_INTERVAL_MS 1000
-#endif
-
-// ============================================================================
-// LVGL Configuration
-// ============================================================================
-// LVGL draw buffer size in pixels (larger = faster, more RAM).
-#ifndef LVGL_BUFFER_SIZE
-	#if HAS_DISPLAY
-		#define LVGL_BUFFER_SIZE (DISPLAY_WIDTH * 10)  // 10 lines buffer
-	#else
-		#define LVGL_BUFFER_SIZE 0
-	#endif
-#endif
-
-// LVGL tick period in milliseconds.
-#ifndef LVGL_TICK_PERIOD_MS
-#define LVGL_TICK_PERIOD_MS 5
 #endif
 
 // ============================================================================
@@ -247,13 +230,6 @@
 #define TOUCH_DRIVER_FT6236 2
 #define TOUCH_DRIVER_AXS15231B 3
 #define TOUCH_DRIVER_CST816S_ESP_PANEL 4
-
-// Prefer allocating LVGL draw buffer in internal RAM before PSRAM.
-// Default: false (keeps historical PSRAM-first behavior; boards can override).
-// Prefer internal RAM over PSRAM for LVGL draw buffer allocation.
-#ifndef LVGL_BUFFER_PREFER_INTERNAL
-#define LVGL_BUFFER_PREFER_INTERNAL false
-#endif
 
 // ESP_Panel (QSPI) display driver: prefer internal RAM for the byte-swap buffer.
 // Default: true. Some panel buses are more reliable with internal/DMA-capable buffers.
@@ -301,11 +277,7 @@
 // Requires: HAS_DISPLAY = true
 //
 // Template note (bloat control):
-// - When HAS_IMAGE_API is enabled, the firmware also compiles an optional LVGL-based image screen
-//   (screen id: "lvgl_image") which can display downloaded/uploaded JPEGs via LVGL (lv_img).
-// - LVGL image widget + zoom support are enabled via src/app/lv_conf.h when HAS_IMAGE_API is true.
-// - If you want Image API without the LVGL image widget/zoom code, you can override LVGL config
-//   by setting LV_USE_IMG=0 and/or LV_USE_IMG_TRANSFORM=0 in src/app/lv_conf.h (or via build flags).
+// - Image API supports direct strip-based rendering and does not depend on LVGL.
 // Adds REST endpoints:
 //   POST   /api/display/image          - Upload full JPEG (deferred decode)
 //   DELETE /api/display/image          - Dismiss current image

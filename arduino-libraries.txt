@@ -30,7 +30,6 @@ PubSubClient@2.8
 
 # Display (TFT_eSPI for ESP32-2432S028R CYD and compatible displays)
 TFT_eSPI@2.5.43
-lvgl@8.4.0
 
 # Display (Arduino_GFX for JC3248W535 and other QSPI displays)
 GFX Library for Arduino@1.6.2

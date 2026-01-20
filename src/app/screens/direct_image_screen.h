@@ -1,9 +1,8 @@
 /*
  * Direct Image Screen
  * 
- * Blank black screen for strip-by-strip image display.
- * Strips are decoded and written directly to LCD hardware (bypassing LVGL).
- * Uses visibility pattern to prevent other screens from rendering during display.
+ * Direct image session for strip-by-strip image display.
+ * Strips are decoded and written directly to LCD hardware.
  * 
  * Default timeout: 10 seconds (configurable via set_timeout)
  */
@@ -14,24 +13,21 @@
 
 #if HAS_IMAGE_API
 
-#include "screen.h"
 #include "../strip_decoder.h"
-#include <lvgl.h>
 
 // Forward declaration
 class DisplayManager;
 
-class DirectImageScreen : public Screen {
+class DirectImageScreen {
 public:
     DirectImageScreen(DisplayManager* mgr);
     ~DirectImageScreen();
     
-    // Screen interface
-    void create() override;
-    void destroy() override;
-    void update() override;
-    void show() override;
-    void hide() override;
+    void create();
+    void destroy();
+    void update();
+    void show();
+    void hide();
     
     // Strip upload session management
     // width: image width in pixels
@@ -59,7 +55,6 @@ public:
     
 private:
     DisplayManager* manager;    // Display manager reference
-    lv_obj_t* screen_obj;       // LVGL screen object (blank black)
     StripDecoder decoder;       // JPEG decoder
     
     // Timeout tracking

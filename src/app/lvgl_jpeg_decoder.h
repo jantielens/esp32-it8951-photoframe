@@ -2,11 +2,7 @@
 
 #include "board_config.h"
 
-#if HAS_DISPLAY && HAS_IMAGE_API
-
-#include <lvgl.h>
-
-#if LV_USE_IMG
+#if HAS_DISPLAY && HAS_IMAGE_API && 0
 
 #include <stddef.h>
 #include <stdint.h>
@@ -27,6 +23,4 @@ bool lvgl_jpeg_decode_to_rgb565(
     size_t err_len
 );
 
-#endif // LV_USE_IMG
-
-#endif // HAS_DISPLAY && HAS_IMAGE_API
+#endif // HAS_DISPLAY && HAS_IMAGE_API && 0

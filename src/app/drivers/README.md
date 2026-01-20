@@ -1,12 +1,12 @@
 # Drivers (Display + Touch)
 
-This project targets a single e‑ink display backend. The display driver is implemented as an LVGL framebuffer adapter and lives alongside optional touch drivers.
+This project targets a single e‑ink display backend. The display driver exposes a small, LVGL-free HAL and lives alongside optional touch drivers.
 
 ## Display driver
 
-- **IT8951 LVGL driver**: `it8951_lvgl_driver.*`
-  - Buffered render mode (RGB565 → G4 conversion)
-  - `present()` pushes the G4 framebuffer to the panel
+- **IT8951 display driver**: `it8951_display_driver.*`
+  - Presents packed G4 buffers to the panel
+  - Supports full-screen and region updates
 
 The selected display driver is compiled via:
 - `src/app/display_drivers.cpp`

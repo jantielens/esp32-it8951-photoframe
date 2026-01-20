@@ -136,6 +136,10 @@ void portal_controller_tick() {
     web_portal_handle();
     sd_storage_purge_jobs();
 
+    #if HAS_DISPLAY
+    display_manager_tick();
+    #endif
+
     static bool last_paused = false;
     const bool paused = web_portal_render_is_paused();
     if (paused != last_paused) {

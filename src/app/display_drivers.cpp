@@ -7,7 +7,7 @@
 // so manager code stays focused on logic.
 
 #if DISPLAY_DRIVER == DISPLAY_DRIVER_IT8951
-#include "drivers/it8951_lvgl_driver.cpp"
+#include "drivers/it8951_display_driver.cpp"
 #else
 #error "No display driver selected or unknown driver type"
 #endif

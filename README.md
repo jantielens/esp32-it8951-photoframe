@@ -47,4 +47,4 @@ python3 tools/jpg_to_g4.py /path/to/photos --variant compare
 ## Notes
 - The IT8951 driver uses GxEPD2. Grayscale rendering is 16 levels.
 - G4 is a packed 4bpp grayscale format (2 pixels per byte) for fast rendering.
-- LVGL is used for e‑ink status screens (splash/progress).
+- A lightweight e‑ink UI renderer provides splash/progress without LVGL.

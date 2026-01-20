@@ -1,8 +1,7 @@
 /*
  * Touch Manager
  * 
- * Manages touch controller lifecycle and LVGL integration.
- * Follows the same pattern as DisplayManager.
+ * Manages touch controller lifecycle (no LVGL integration).
  */
 
 #ifndef TOUCH_MANAGER_H
@@ -13,29 +12,22 @@
 #if HAS_TOUCH
 
 #include <Arduino.h>
-#include <lvgl.h>
 #include "touch_driver.h"
 
 class TouchManager {
 private:
     TouchDriver* driver;
-    lv_indev_drv_t indev_drv;
-    lv_indev_t* indev;
-
-    bool lvglRegisterPending;
-    bool tryRegisterWithLVGL();
-    
-    // LVGL read callback (static, accesses instance via user_data)
-    static void readCallback(lv_indev_drv_t* drv, lv_indev_data_t* data);
+    uint32_t suppressUntilMs;
+    bool forceReleased;
     
 public:
     TouchManager();
     ~TouchManager();
     
-    // Initialize touch hardware and register with LVGL
+    // Initialize touch hardware
     void init();
 
-    // Retry deferred LVGL registration (non-blocking)
+    // Periodic maintenance (optional)
     void loop();
     
     // Get touch state (for debugging)
@@ -48,12 +40,10 @@ void touch_manager_init();
 void touch_manager_loop();
 bool touch_manager_is_touched();
 
-// Temporarily suppress LVGL touch input (forces LVGL state=RELEASED).
-// Useful to avoid "wake tap" click-through when turning the backlight back on.
+// Temporarily suppress touch input (forces released).
 void touch_manager_suppress_lvgl_input(uint32_t duration_ms);
 
-// Force LVGL to always see RELEASED while active.
-// Screen saver uses this while dimming/asleep/fading in.
+// Force touch to always report RELEASED while active.
 void touch_manager_set_lvgl_force_released(bool force_released);
 
 #endif // HAS_TOUCH

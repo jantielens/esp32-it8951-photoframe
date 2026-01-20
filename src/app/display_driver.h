@@ -2,7 +2,6 @@
  * Display Driver Interface
  * 
  * Hardware abstraction layer for e-ink display drivers.
- * LVGL flushes write into a framebuffer; present() pushes to the panel.
  * 
  * IMPLEMENTATION GUIDE FOR NEW DRIVERS:
  * =====================================
@@ -18,50 +17,49 @@
 #define DISPLAY_DRIVER_H
 
 #include <Arduino.h>
-#include <lvgl.h>
 
 // ============================================================================
 // Display Driver Interface
 // ============================================================================
 // Pure virtual interface for display hardware abstraction.
-// Minimal set of methods required for LVGL integration.
+// Minimal set of methods required for e-ink UI rendering.
 
 class DisplayDriver {
 public:
     virtual ~DisplayDriver() = default;
 
-    enum class RenderMode : uint8_t {
-        Direct = 0,
-        Buffered = 1,
-    };
-    
     // Hardware initialization
     virtual void init() = 0;
     
-    // Active coordinate space dimensions for the LVGL framebuffer.
+    // Active coordinate space dimensions.
     virtual int width() = 0;
     virtual int height() = 0;
 
-    // Declare whether the driver is Direct or Buffered.
-    // Default: Buffered for e-ink (flush writes into a framebuffer).
-    virtual RenderMode renderMode() const {
-        return RenderMode::Buffered;
+    // Busy guard for long-running transfers.
+    virtual bool isBusy() const = 0;
+
+    // Present a full-screen 4bpp (packed) buffer.
+    virtual bool presentG4Full(const uint8_t* g4, bool fullRefresh) = 0;
+
+    // Present a region 4bpp (packed) buffer.
+    virtual bool presentG4Region(const uint8_t* g4, uint16_t x, uint16_t y,
+                                 uint16_t w, uint16_t h, bool fullRefresh) = 0;
+
+    // Optional direct RGB565 write path (used by JPEG strip decoder on color panels).
+    virtual void startWrite() {}
+    virtual void endWrite() {}
+    virtual void setAddrWindow(int16_t x, int16_t y, uint16_t w, uint16_t h) {
+        (void)x; (void)y; (void)w; (void)h;
+    }
+    virtual void pushColors(uint16_t* data, uint32_t len, bool swap_bytes) {
+        (void)data; (void)len; (void)swap_bytes;
     }
 
-    // LVGL flush callback handler: copy the area into the driver's framebuffer.
-    virtual void flushArea(const lv_area_t* area, lv_color_t* color_p) = 0;
-
-    // For buffered drivers, push the accumulated framebuffer to the panel.
-    virtual void present() {}
-
-    // Optional full-refresh present (fallbacks to present()).
-    virtual void present(bool fullRefresh) { (void)fullRefresh; present(); }
-    
-    // LVGL configuration hook (override to customize LVGL driver settings)
-    // Called during LVGL initialization to allow driver-specific configuration
-    // such as software rotation, full refresh mode, etc.
-    // Default implementation: no special configuration needed
-    virtual void configureLVGL(lv_disp_drv_t* drv) {}
+    // Optional backlight controls (mostly for TFT panels).
+    virtual void setBacklight(bool on) { (void)on; }
+    virtual void setBacklightBrightness(uint8_t brightness) { (void)brightness; }
+    virtual uint8_t getBacklightBrightness() { return 0; }
+    virtual bool hasBacklightControl() { return false; }
 
     // Minimum time between present() calls. E-ink panels are slow; throttle updates.
     virtual uint32_t minPresentIntervalMs() const { return 0; }

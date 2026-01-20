@@ -89,7 +89,7 @@ void web_portal_set_ota_in_progress(bool in_progress) {
 // (Basic auth gate moved to web_portal_auth.cpp)
 
 #if HAS_IMAGE_API && HAS_DISPLAY
-// AsyncWebServer callbacks run on the AsyncTCP task; never touch LVGL/display from there.
+// AsyncWebServer callbacks run on the AsyncTCP task; never touch display from there.
 // Use this flag to defer "hide current image / return" operations to the main loop.
 static volatile bool pending_image_hide_request = false;
 #endif
@@ -130,7 +130,7 @@ void web_portal_init(DeviceConfig *config) {
     backend.hide_current_image = []() {
         #if HAS_DISPLAY
         // Called from AsyncTCP task and sometimes from the main loop.
-        // Always defer actual display/LVGL operations to the main loop.
+        // Always defer actual display operations to the main loop.
         pending_image_hide_request = true;
         #endif
     };
@@ -179,7 +179,7 @@ void web_portal_init(DeviceConfig *config) {
     ImageApiConfig image_cfg;
 
     // Use the display driver's coordinate space (fast path for direct image writes).
-    // This intentionally avoids LVGL calls and any DISPLAY_ROTATION heuristics.
+    // This intentionally avoids UI calls and any DISPLAY_ROTATION heuristics.
     image_cfg.lcd_width = DISPLAY_WIDTH;
     image_cfg.lcd_height = DISPLAY_HEIGHT;
 
@@ -236,7 +236,8 @@ void web_portal_process_pending_images() {
     #if HAS_DISPLAY
     if (pending_image_hide_request) {
         pending_image_hide_request = false;
-        display_manager_return_to_previous_screen();
+        display_manager_show_splash();
+        display_manager_render_now();
     }
     #endif
 

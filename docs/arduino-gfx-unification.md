@@ -1,5 +1,8 @@
 # Arduino_GFX Unification Research (JC3248W535 + Other Boards)
 
+> Note (2026 refactor): LVGL has been removed from this project. The content below is legacy research
+> and no longer reflects the current display architecture.
+
 This document captures research performed while adding support for the **JC3248W535** board and evaluating whether we could simplify the codebase by using **Arduino_GFX** for *all* displays.
 
 ## Context

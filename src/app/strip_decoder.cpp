@@ -436,12 +436,6 @@ bool StripDecoder::decode_strip(const uint8_t* jpeg_data, size_t jpeg_size, int 
         return false;
     }
 
-    // Buffered drivers (e.g., Arduino_GFX canvas) require an explicit present()
-    // to flush the accumulated pixels to the physical panel.
-    if (driver->renderMode() == DisplayDriver::RenderMode::Buffered) {
-        driver->present();
-    }
-    
     // Move Y position for next strip
     current_y += jdec.height;
     

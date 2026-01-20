@@ -139,7 +139,7 @@ static void handle_pending_requests() {
     if (doActivity) {
         g_last_activity_ms = millis();
         // Only escalate "activity" into a wake when we're actually asleep/dimming.
-        // When awake, touches should flow to LVGL without causing redundant wakes.
+        // When awake, touches should flow through without causing redundant wakes.
         if (activityWake && (g_state == ScreenSaverState::Asleep || g_state == ScreenSaverState::FadingOut)) {
             doWake = true;
         }
@@ -166,7 +166,7 @@ static void handle_pending_requests() {
         }
 
         #if HAS_TOUCH
-        // Swallow wake interactions so swipe-to-wake doesn't click through into LVGL.
+        // Swallow wake interactions so swipe-to-wake doesn't click through.
         // We suppress for (fade_in + small buffer) and only when waking from sleep/dimming.
         if (g_state == ScreenSaverState::Asleep || g_state == ScreenSaverState::FadingOut) {
             const uint32_t windowMs = (uint32_t)fade_in_ms() + 250;
@@ -233,7 +233,7 @@ static void poll_touch_activity() {
     if (!g_config) return;
     if (!g_config->screen_saver_wake_on_touch) return;
 
-    // Avoid competing with LVGL's indev polling while awake.
+    // Avoid competing with other touch consumers while awake.
     // Only poll the raw touch state to wake the backlight when sleeping/dimming.
     if (g_state == ScreenSaverState::Awake || g_state == ScreenSaverState::FadingIn) return;
 
@@ -309,7 +309,7 @@ void screen_saver_manager_loop() {
     maybe_auto_sleep();
 
     #if HAS_TOUCH
-    // While dimming/asleep/fading in, suppress LVGL input so wake gestures don't click-through.
+    // While dimming/asleep/fading in, suppress touch input so wake gestures don't click-through.
     // This is based on state (not config enabled), so it also protects transitions caused
     // by explicit API calls.
     static bool prev_force = false;
