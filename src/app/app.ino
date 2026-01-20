@@ -127,6 +127,20 @@ static void enter_deep_sleep(uint32_t sleep_seconds) {
   esp_deep_sleep_start();
 }
 
+// Fast-wake path: for timer or button wake when always-on is disabled.
+// Goal: render next image and sleep ASAP (skip splash + portal + WiFi).
+static bool is_fast_wake(const DeviceConfig &config, uint16_t long_press_ms) {
+  if (config.always_on) return false;
+  if (long_press_ms > 0 && input_manager_check_long_press(long_press_ms)) {
+    return false;  // Long press should enter config mode.
+  }
+
+  const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+  return (cause == ESP_SLEEP_WAKEUP_TIMER ||
+          cause == ESP_SLEEP_WAKEUP_EXT0 ||
+          cause == ESP_SLEEP_WAKEUP_TOUCHPAD);
+}
+
 static void run_config_mode(DeviceConfig &config, bool config_loaded) {
   LOGI("Portal", "Config mode start");
 
@@ -220,23 +234,9 @@ void setup() {
 
   DeviceConfig config = {};
 
-  #if HAS_DISPLAY
-  display_manager_init(&config);
-  it8951_render_full_white();
-  {
-    char status[64];
-    snprintf(status, sizeof(status), "Display OK %dx%d r%d", DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_ROTATION);
-    display_manager_set_splash_status(status);
-    display_manager_render_now();
-  }
-  display_manager_set_splash_status("Booting...");
-  display_manager_render_full_now();
-  #endif
-
   config_manager_init();
   #if HAS_DISPLAY
-  display_manager_set_splash_status("Loading config...");
-  display_manager_render_now();
+  // Avoid UI work until we decide whether to take the fast-wake path.
   #endif
   const bool config_loaded = config_manager_load(&config);
   if (!config_loaded || strlen(config.device_name) == 0) {
@@ -245,11 +245,6 @@ void setup() {
   }
   rtc_image_state_init();
 
-  #if HAS_DISPLAY
-  display_manager_set_splash_status(config_loaded ? "Config loaded" : "Using defaults");
-  display_manager_render_now();
-  #endif
-
     LOGI("Boot", "Config loaded=%s always_on=%s sleep=%lus wifi=%s mode=%s",
       config_loaded ? "true" : "false",
       config.always_on ? "true" : "false",
@@ -257,11 +252,31 @@ void setup() {
       strlen(config.wifi_ssid) > 0 ? "set" : "empty",
       config.image_selection_mode);
 
+  const uint16_t long_press_ms = config.long_press_ms > 0 ? config.long_press_ms : kDefaultLongPressMs;
+  const bool fast_wake = is_fast_wake(config, long_press_ms);
+
+  #if HAS_DISPLAY
+  if (!fast_wake) {
+    display_manager_init(&config);
+    it8951_render_full_white();
+    {
+      char status[64];
+      snprintf(status, sizeof(status), "Display OK %dx%d r%d", DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_ROTATION);
+      display_manager_set_splash_status(status);
+      display_manager_render_now();
+    }
+    display_manager_set_splash_status("Booting...");
+    display_manager_render_full_now();
+    display_manager_set_splash_status("Loading config...");
+    display_manager_render_now();
+    display_manager_set_splash_status(config_loaded ? "Config loaded" : "Using defaults");
+    display_manager_render_now();
+  }
+  #endif
+
   const uint32_t sleep_seconds = config.sleep_timeout_seconds > 0
       ? config.sleep_timeout_seconds
       : kDefaultSleepSeconds;
-
-  const uint16_t long_press_ms = config.long_press_ms > 0 ? config.long_press_ms : kDefaultLongPressMs;
   if (config.always_on) {
     LOGI("Mode", "Always-on selected");
 #if HAS_DISPLAY
@@ -271,11 +286,13 @@ void setup() {
     run_always_on(config, config_loaded);
     return;
   } else {
-    const bool long_press = input_manager_check_long_press(long_press_ms);
-    if (long_press) {
-      LOGI("Button", "Long press detected (%ums) - config mode requested", (unsigned)long_press_ms);
-      run_config_mode(config, config_loaded);
-      return;
+    if (!fast_wake) {
+      const bool long_press = input_manager_check_long_press(long_press_ms);
+      if (long_press) {
+        LOGI("Button", "Long press detected (%ums) - config mode requested", (unsigned)long_press_ms);
+        run_config_mode(config, config_loaded);
+        return;
+      }
     }
   }
 
@@ -283,7 +300,7 @@ void setup() {
 
   const SdCardPins pins = make_sd_pins();
   bool downloaded = false;
-  if (strlen(config.blob_sas_url) > 0) {
+  if (!fast_wake && strlen(config.blob_sas_url) > 0) {
     LOGI("Blob", "SAS configured; attempting blob pull");
     const bool was_connected = (WiFi.status() == WL_CONNECTED);
     if (was_connected || connect_wifi_for_blob(config)) {
