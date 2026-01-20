@@ -8,6 +8,9 @@
 #include "blob_pull.h"
 #include "portal_controller.h"
 #include "render_scheduler.h"
+#if HAS_MQTT
+#include "mqtt_manager.h"
+#endif
 #if HAS_DISPLAY
 #include "display_manager.h"
 #endif
@@ -32,6 +35,10 @@ static constexpr uint32_t kNoImageRetryMs = 5000;
 
 static SPIClass sdSpi(HSPI);
 
+#if HAS_MQTT
+MqttManager mqtt_manager;
+#endif
+
 struct BlobPullContext {
   const DeviceConfig *config = nullptr;
   SPIClass *spi = nullptr;
@@ -49,7 +56,7 @@ static bool blob_pull_pre_enqueue(void *ctx) {
   return blob_pull_download_once(*state->config, *state->spi, state->pins, state->frequency_hz);
 }
 
-static bool connect_wifi_for_blob(const DeviceConfig &config) {
+static bool connect_wifi_sta(const DeviceConfig &config, const char *reason, bool show_status) {
   if (strlen(config.wifi_ssid) == 0) return false;
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -57,11 +64,13 @@ static bool connect_wifi_for_blob(const DeviceConfig &config) {
   }
 
   #if HAS_DISPLAY
+  if (show_status) {
     display_manager_set_splash_status("Connecting to WiFi...");
     display_manager_render_now();
+  }
   #endif
 
-  LOGI("WiFi", "Blob pull: connect start (ssid set)");
+  LOGI("WiFi", "%s: connect start (ssid set)", reason ? reason : "WiFi");
   WiFi.mode(WIFI_STA);
   WiFi.begin(config.wifi_ssid, config.wifi_password);
 
@@ -69,27 +78,31 @@ static bool connect_wifi_for_blob(const DeviceConfig &config) {
     const unsigned long start = millis();
     while (millis() - start < 3000) {
       if (WiFi.status() == WL_CONNECTED) {
-      #if HAS_DISPLAY
-        display_manager_set_splash_status("WiFi connected");
-        display_manager_render_now();
-      #endif
-        LOGI("WiFi", "Blob pull: connected %s", WiFi.localIP().toString().c_str());
+        #if HAS_DISPLAY
+        if (show_status) {
+          display_manager_set_splash_status("WiFi connected");
+          display_manager_render_now();
+        }
+        #endif
+        LOGI("WiFi", "%s: connected %s", reason ? reason : "WiFi", WiFi.localIP().toString().c_str());
         return true;
       }
       delay(100);
     }
-    LOGW("WiFi", "Blob pull: connect attempt %d/%d failed", attempt + 1, WIFI_MAX_ATTEMPTS);
+    LOGW("WiFi", "%s: connect attempt %d/%d failed", reason ? reason : "WiFi", attempt + 1, WIFI_MAX_ATTEMPTS);
   }
 
-  LOGW("WiFi", "Blob pull: connect failed (max attempts)");
+  LOGW("WiFi", "%s: connect failed (max attempts)", reason ? reason : "WiFi");
   #if HAS_DISPLAY
-  display_manager_set_splash_status("WiFi connect failed");
-  display_manager_render_now();
+  if (show_status) {
+    display_manager_set_splash_status("WiFi connect failed");
+    display_manager_render_now();
+  }
   #endif
   return false;
 }
 
-static void disconnect_wifi_for_blob() {
+static void disconnect_wifi_for_mqtt() {
   if (WiFi.status() == WL_CONNECTED) {
     WiFi.disconnect(true);
     delay(50);
@@ -107,6 +120,49 @@ static SdCardPins make_sd_pins() {
   };
   return pins;
 }
+
+#if HAS_MQTT
+static void mqtt_init_from_config(const DeviceConfig &config) {
+  char sanitized[CONFIG_DEVICE_NAME_MAX_LEN];
+  config_manager_sanitize_device_name(config.device_name, sanitized, sizeof(sanitized));
+  mqtt_manager.begin(&config, config.device_name, sanitized);
+}
+
+static void mqtt_publish_before_sleep(const DeviceConfig &config, bool wifi_connected, bool disconnect_after) {
+  if (strlen(config.mqtt_host) == 0) return;
+  if (!wifi_connected) {
+    LOGW("MQTT", "WiFi not connected; skipping publish");
+    return;
+  }
+
+  mqtt_init_from_config(config);
+
+  const unsigned long start = millis();
+  bool connected = false;
+  while (millis() - start < 5000) {
+    mqtt_manager.loop();
+    if (mqtt_manager.connected()) {
+      connected = true;
+      break;
+    }
+    delay(100);
+  }
+
+  if (connected) {
+    const unsigned long publish_start = millis();
+    while (millis() - publish_start < 1000) {
+      mqtt_manager.loop();
+      delay(50);
+    }
+  } else {
+    LOGW("MQTT", "Connect timeout before sleep");
+  }
+
+  if (disconnect_after) {
+    disconnect_wifi_for_mqtt();
+  }
+}
+#endif
 
 static void enter_deep_sleep(uint32_t sleep_seconds) {
   Serial.flush();
@@ -173,6 +229,10 @@ static void run_always_on(DeviceConfig &config, bool config_loaded) {
   const SdCardPins pins = make_sd_pins();
   portal_controller_start(config, config_loaded, sdSpi, pins, kSdFrequencyHz);
 
+  #if HAS_MQTT
+  mqtt_init_from_config(config);
+  #endif
+
   const uint32_t sleep_seconds = config.sleep_timeout_seconds > 0
       ? config.sleep_timeout_seconds
       : kDefaultSleepSeconds;
@@ -204,6 +264,10 @@ static void run_always_on(DeviceConfig &config, bool config_loaded) {
     }
 
     render_scheduler_tick();
+
+    #if HAS_MQTT
+    mqtt_manager.loop();
+    #endif
 
     delay(10);
   }
@@ -299,15 +363,27 @@ void setup() {
   LOGI("Mode", "Default sleep mode selected");
 
   const SdCardPins pins = make_sd_pins();
+
+  bool wifi_was_connected = (WiFi.status() == WL_CONNECTED);
+  bool wifi_connected = wifi_was_connected;
+  const bool needs_wifi = (strlen(config.blob_sas_url) > 0)
+  #if HAS_MQTT
+      || (strlen(config.mqtt_host) > 0)
+  #endif
+      ;
+
+  if (!wifi_connected && needs_wifi) {
+    const bool show_status = !fast_wake;
+    wifi_connected = connect_wifi_sta(config, "Boot", show_status);
+  }
+
   bool downloaded = false;
-  if (!fast_wake && strlen(config.blob_sas_url) > 0) {
+  if (strlen(config.blob_sas_url) > 0) {
     LOGI("Blob", "SAS configured; attempting blob pull");
-    const bool was_connected = (WiFi.status() == WL_CONNECTED);
-    if (was_connected || connect_wifi_for_blob(config)) {
+    if (wifi_connected) {
       downloaded = blob_pull_download_once(config, sdSpi, pins, kSdFrequencyHz);
-    }
-    if (!was_connected) {
-      disconnect_wifi_for_blob();
+    } else {
+      LOGW("Blob", "WiFi unavailable; skipping blob pull");
     }
     if (!downloaded) {
       LOGW("Blob", "No blob downloaded; falling back to SD");
@@ -316,10 +392,16 @@ void setup() {
 
   if (!render_scheduler_render_once(config, sdSpi, pins, kSdFrequencyHz)) {
     LOGW("Mode", "Render once failed; entering deep sleep");
+    #if HAS_MQTT
+    mqtt_publish_before_sleep(config, wifi_connected, !wifi_was_connected);
+    #endif
     enter_deep_sleep(sleep_seconds);
     return;
   }
 
+  #if HAS_MQTT
+  mqtt_publish_before_sleep(config, wifi_connected, !wifi_was_connected);
+  #endif
   it8951_renderer_hibernate();
   enter_deep_sleep(sleep_seconds);
 }

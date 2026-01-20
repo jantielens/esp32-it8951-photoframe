@@ -13,7 +13,7 @@
 // Disable template subsystems for Phase-1 simplicity.
 #define HAS_DISPLAY true
 #define HAS_TOUCH false
-#define HAS_MQTT false
+#define HAS_MQTT true
 #define HAS_IMAGE_API false
 #define HEALTH_HISTORY_ENABLED 1
 

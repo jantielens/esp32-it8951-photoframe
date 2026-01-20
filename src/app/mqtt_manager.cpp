@@ -119,7 +119,12 @@ void MqttManager::publishHealthNow() {
         LOGE("MQTT", "Health JSON payload too large for MQTT_MAX_PACKET_SIZE (%u)", (unsigned)sizeof(payload));
         return;
     }
-    _client.publish(_health_state_topic, (const uint8_t*)payload, (unsigned)n, true);
+    const bool ok = _client.publish(_health_state_topic, (const uint8_t*)payload, (unsigned)n, true);
+    if (ok) {
+        LOGI("MQTT", "Health publish (boot) ok (%u bytes)", (unsigned)n);
+    } else {
+        LOGW("MQTT", "Health publish (boot) failed");
+    }
 }
 
 void MqttManager::publishHealthIfDue() {
@@ -149,6 +154,9 @@ void MqttManager::publishHealthIfDue() {
 
         if (ok) {
             _last_health_publish_ms = now;
+            LOGI("MQTT", "Health publish ok (%u bytes)", (unsigned)n);
+        } else {
+            LOGW("MQTT", "Health publish failed");
         }
     }
 }

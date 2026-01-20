@@ -94,7 +94,7 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 <!-- BEGIN COMPILE_FLAG_REPORT:MATRIX_FEATURES -->
 | board-name | HAS_BACKLIGHT | HAS_BUILTIN_LED | HAS_DISPLAY | HAS_IMAGE_API | HAS_MQTT | HAS_TOUCH |
 | --- | --- | --- | --- | --- | --- | --- |
-| esp32s2-photoframe-it8951 |  |  | ✅ |  |  |  |
+| esp32s2-photoframe-it8951 |  |  | ✅ |  | ✅ |  |
 <!-- END COMPILE_FLAG_REPORT:MATRIX_FEATURES -->
 
 ## Board Matrix: Selectors (generated)
@@ -164,6 +164,7 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/web_portal.cpp
   - src/app/web_portal.h
 - **HAS_MQTT**
+  - src/app/app.ino
   - src/app/board_config.h
   - src/app/config_manager.cpp
   - src/app/device_telemetry.cpp

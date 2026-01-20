@@ -54,6 +54,8 @@ void ha_discovery_publish_health(MqttManager &mqtt) {
     publish_sensor_config(mqtt, "psram_largest", "PSRAM Largest Block", "{{ value_json.psram_largest }}", "B", "", "measurement", "diagnostic");
     publish_sensor_config(mqtt, "psram_fragmentation", "PSRAM Fragmentation", "{{ value_json.psram_fragmentation }}", "%", "", "measurement", "diagnostic");
 
+    publish_sensor_config(mqtt, "battery_voltage", "Battery Voltage", "{{ value_json.battery_voltage }}", "V", "voltage", "measurement", "diagnostic");
+
     publish_sensor_config(mqtt, "flash_used", "Flash Used", "{{ value_json.flash_used }}", "B", "", "measurement", "diagnostic");
     publish_sensor_config(mqtt, "flash_total", "Flash Total", "{{ value_json.flash_total }}", "B", "", "measurement", "diagnostic");
 

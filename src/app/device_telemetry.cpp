@@ -508,6 +508,9 @@ void device_telemetry_fill_api(JsonDocument &doc) {
     // Example (commented out):
     // doc["temperature"] = 23.4;
     // doc["humidity"] = 55.2;
+
+    // Temporary battery voltage placeholder (volts).
+    doc["battery_voltage"] = 3.5;
 }
 
 void device_telemetry_fill_mqtt(JsonDocument &doc) {
@@ -534,6 +537,9 @@ void device_telemetry_fill_mqtt(JsonDocument &doc) {
     // Example (commented out):
     // doc["temperature"] = 23.4;
     // doc["humidity"] = 55.2;
+
+    // Temporary battery voltage placeholder (volts).
+    doc["battery_voltage"] = 3.5;
 }
 
 void device_telemetry_init() {
