@@ -1003,73 +1003,139 @@ Manage `.g4` images stored in the SD card root. Files must be `.g4` and smaller 
 
 #### `GET /api/sd/images`
 
-List `.g4` images on the SD card (sorted by filename).
-
-**Response (Success):**
-```json
-{
-  "success": true,
-  "count": 3,
-  "files": ["a.g4", "b.g4", "c.g4"]
-}
-```
-
-**Response (Busy):**
-- `409` when the SD card is busy (upload or render in progress)
-
-#### `POST /api/sd/images`
-
-Upload a `.g4` file to SD (overwrites on conflict).
-
-**Request:**
-- Content-Type: `multipart/form-data`
-- File field: `file` (.g4)
-
-**Response (Success):**
-```json
-{
-  "success": true
-}
-```
-
-**Response (Busy):**
-- `409` when the SD card is busy (upload or render in progress)
-
-#### `DELETE /api/sd/images?name=<filename>`
-
-Delete a `.g4` file from SD.
-
-**Response (Success):**
-```json
-{
-  "success": true
-}
-```
-
-**Response (Busy):**
-- `409` when the SD card is busy (upload or render in progress)
-
-#### `POST /api/sd/images/display?name=<filename>`
-
-Display a `.g4` image immediately without waiting for the next boot cycle.
-
-**Response (Success):**
-```json
-{
-  "success": true
-}
-```
+Queue a job to list `.g4` images on the SD card (sorted by filename).
 
 **Response (Queued):**
 ```json
 {
   "success": true,
-  "queued": true
+  "queued": true,
+  "job_id": 42
 }
 ```
 
-**Response (Busy):**
-- `409` when another display is already pending
+#### `POST /api/sd/images`
+
+Upload a `.g4` file to SD (overwrites on conflict). Upload queues a job after
+the HTTP payload is received.
+
+**Request:**
+- Content-Type: `multipart/form-data`
+- File field: `file` (.g4)
+
+**Response (Queued):**
+```json
+{
+  "success": true,
+  "queued": true,
+  "job_id": 43
+}
+```
+
+#### `DELETE /api/sd/images?name=<filename>`
+
+Delete a `.g4` file from SD.
+
+**Response (Queued):**
+```json
+{
+  "success": true,
+  "queued": true,
+  "job_id": 44
+}
+```
+
+#### `POST /api/sd/images/display?name=<filename>`
+
+Queue an immediate display of a `.g4` image.
+
+**Response (Queued):**
+```json
+{
+  "success": true,
+  "queued": true,
+  "job_id": 45
+}
+```
+
+#### `GET /api/sd/jobs?id=<job_id>`
+
+Check status of a queued SD job.
+
+**Response (Running):**
+```json
+{
+  "success": true,
+  "id": 42,
+  "type": "list",
+  "state": "running",
+  "ok": false
+}
+```
+
+**Response (Done - List):**
+```json
+{
+  "success": true,
+  "id": 42,
+  "type": "list",
+  "state": "done",
+  "ok": true,
+  "files": ["a.g4", "b.g4", "c.g4"]
+}
+```
+
+**Response (Error):**
+```json
+{
+  "success": true,
+  "id": 42,
+  "type": "upload",
+  "state": "error",
+  "ok": false,
+  "message": "Write failed"
+}
+```
+
+### Render Pause Control
+
+Use these endpoints to pause auto-rendering during long-running SD operations.
+
+#### `POST /api/render/pause`
+
+Pause auto-rendering.
+
+**Response:**
+```json
+{
+  "success": true,
+  "paused": true
+}
+```
+
+#### `POST /api/render/resume`
+
+Resume auto-rendering.
+
+**Response:**
+```json
+{
+  "success": true,
+  "paused": false
+}
+```
+
+#### `GET /api/render/status`
+
+Check pause state.
+
+**Response:**
+```json
+{
+  "success": true,
+  "paused": false
+}
+```
 
 ## Implementation Details
 

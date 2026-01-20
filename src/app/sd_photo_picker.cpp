@@ -8,6 +8,7 @@
 
 static constexpr size_t kMaxG4NameLen = 63;
 static constexpr uint32_t kInvalidIndex = 0xFFFFFFFFu;
+static constexpr uint32_t kNoG4LogIntervalMs = 60000;
 
 static bool ends_with_bmp_case_insensitive(const char *name) {
     if (!name) return false;
@@ -136,7 +137,12 @@ bool sd_pick_g4_image(
 
     const uint32_t count = static_cast<uint32_t>(names.size());
     if (count == 0) {
-        LOGW("SD", "No .g4 images found");
+        static unsigned long last_no_g4_log_ms = 0;
+        const unsigned long now = millis();
+        if (now - last_no_g4_log_ms >= kNoG4LogIntervalMs) {
+            LOGW("SD", "No .g4 images found");
+            last_no_g4_log_ms = now;
+        }
         return false;
     }
 

@@ -5,6 +5,7 @@
 #include "web_portal_device_api.h"
 #include "web_portal_display.h"
 #include "web_portal_sd_images.h"
+#include "web_portal_render_control_api.h"
 #include "web_portal_firmware.h"
 #include "web_portal_ota.h"
 #include "web_portal_pages.h"
@@ -64,6 +65,14 @@ void web_portal_register_routes(AsyncWebServer* server) {
 
     registerOptions("/api/reboot");
     server->on("/api/reboot", HTTP_POST, handleReboot);
+
+    // Render pause/resume control (for long-running SD operations)
+    registerOptions("/api/render/status");
+    server->on("/api/render/status", HTTP_GET, handleGetRenderStatus);
+    registerOptions("/api/render/pause");
+    server->on("/api/render/pause", HTTP_POST, handlePostRenderPause);
+    registerOptions("/api/render/resume");
+    server->on("/api/render/resume", HTTP_POST, handlePostRenderResume);
 
     // GitHub Pages-based firmware updates (URL-driven)
     registerOptions("/api/firmware/update/status");
@@ -155,5 +164,8 @@ void web_portal_register_routes(AsyncWebServer* server) {
         handleUploadSdImage
     );
     server->on("/api/sd/images", HTTP_DELETE, handleDeleteSdImage);
+
+    registerOptions("/api/sd/jobs");
+    server->on("/api/sd/jobs", HTTP_GET, handleGetSdJobStatus);
 
 }

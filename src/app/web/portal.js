@@ -14,6 +14,7 @@ const API_REBOOT = '/api/reboot';
 const API_VERSION = '/api/info'; // Used for connection polling
 const API_SD_IMAGES = '/api/sd/images';
 const API_SD_IMAGES_DISPLAY = '/api/sd/images/display';
+const API_SD_JOBS = '/api/sd/jobs';
 
 let selectedFile = null;
 let portalMode = 'full'; // 'core' or 'full'
@@ -107,6 +108,40 @@ function hideBusyOverlay() {
     const overlay = document.getElementById('form-loading-overlay');
     if (!overlay) return;
     overlay.style.display = 'none';
+}
+
+function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function sdStartJob(url, options) {
+    const resp = await fetch(url, options);
+    if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(text || 'Request failed');
+    }
+    const data = await resp.json().catch(() => ({}));
+    const jobId = data.job_id;
+    if (!jobId) throw new Error('Missing job id');
+    return jobId;
+}
+
+async function sdWaitJob(jobId, timeoutMs = 60000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        const resp = await fetch(`${API_SD_JOBS}?id=${encodeURIComponent(jobId)}`, { cache: 'no-cache' });
+        if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(text || 'Job status failed');
+        }
+        const data = await resp.json();
+        if (data.state === 'done') return data;
+        if (data.state === 'error') {
+            throw new Error(data.message || 'Job failed');
+        }
+        await wait(500);
+    }
+    throw new Error('Job timeout');
 }
 
 /**
@@ -1001,13 +1036,9 @@ function sdRenderList(files) {
 
 async function sdLoadImages() {
     try {
-        const resp = await fetch(API_SD_IMAGES, { cache: 'no-cache' });
-        if (resp.status === 409) {
-            showMessage('SD busy, try again shortly', 'error');
-            return;
-        }
-        if (!resp.ok) throw new Error('Failed to load SD images');
-        const data = await resp.json();
+        const jobId = await sdStartJob(API_SD_IMAGES, { cache: 'no-cache' });
+        const data = await sdWaitJob(jobId, 60000);
+        if (!data.ok) throw new Error(data.message || 'Failed to load SD images');
         sdRenderList(data.files || []);
     } catch (e) {
         console.error('SD images load failed:', e);
@@ -1049,17 +1080,13 @@ async function sdUploadImage() {
     showBusyOverlay('Uploading image...');
 
     try {
-        const resp = await fetch(API_SD_IMAGES, {
+        const jobId = await sdStartJob(API_SD_IMAGES, {
             method: 'POST',
             body: formData
         });
 
-        if (resp.status === 409) {
-            throw new Error('Device busy, retry in a moment');
-        }
-        if (!resp.ok) {
-            throw new Error('Upload failed');
-        }
+        const data = await sdWaitJob(jobId, 120000);
+        if (!data.ok) throw new Error(data.message || 'Upload failed');
 
         showMessage('Upload complete', 'success');
         sdSelectedFile = null;
@@ -1080,13 +1107,11 @@ async function sdDeleteImage(name) {
     if (!confirm(`Delete ${name}?`)) return;
 
     try {
-        const resp = await fetch(`${API_SD_IMAGES}?name=${encodeURIComponent(name)}`, {
+        const jobId = await sdStartJob(`${API_SD_IMAGES}?name=${encodeURIComponent(name)}`, {
             method: 'DELETE'
         });
-        if (resp.status === 409) {
-            throw new Error('Device busy, retry in a moment');
-        }
-        if (!resp.ok) throw new Error('Delete failed');
+        const data = await sdWaitJob(jobId, 60000);
+        if (!data.ok) throw new Error(data.message || 'Delete failed');
         showMessage('Deleted', 'success');
         await sdLoadImages();
     } catch (e) {
@@ -1099,17 +1124,11 @@ async function sdDisplayImage(name) {
     if (!name) return;
     try {
         showBusyOverlay('Displaying image...');
-        const resp = await fetch(`${API_SD_IMAGES_DISPLAY}?name=${encodeURIComponent(name)}`, {
+        const jobId = await sdStartJob(`${API_SD_IMAGES_DISPLAY}?name=${encodeURIComponent(name)}`, {
             method: 'POST'
         });
-        if (resp.status === 202) {
-            showMessage('Display queued', 'info');
-            return;
-        }
-        if (resp.status === 409) {
-            throw new Error('Display already pending');
-        }
-        if (!resp.ok) throw new Error('Display failed');
+        const data = await sdWaitJob(jobId, 180000);
+        if (!data.ok) throw new Error(data.message || 'Display failed');
         showMessage('Image displayed', 'success');
     } catch (e) {
         console.error('Display error:', e);

@@ -172,6 +172,29 @@ Each byte packs two pixels: high nibble = left pixel, low nibble = right pixel.
 
 ---
 
+## tools/sync_images_to_device.py
+
+**Purpose:** Convert JPGs to `.g4` and upload them to the device SD card via REST API.
+Clears existing `.g4` files first and pauses auto-rendering while syncing.
+
+**Usage:**
+```bash
+python3 tools/sync_images_to_device.py \
+  --device http://esp32-photoframe.local \
+  --variant opt-bayer \
+  ./sample/images
+```
+
+**Options:**
+- `--device` Base device URL
+- `--variant` `base|opt|opt-bayer|opt-fs`
+- `--width` / `--height` Override image size (default 1872×1404)
+- `--auth` Basic auth credentials (`user:pass`)
+
+**Requirements:** Python 3 + Pillow (`python3 -m pip install --user pillow`).
+
+---
+
 ## tools/generate-board-driver-table.py
 
 **Purpose:** Generate a markdown table mapping **board → selected display/touch backends → basic hardware**.
