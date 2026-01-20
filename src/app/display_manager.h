@@ -64,6 +64,7 @@ private:
     bool uiActive;
     bool forceFullRefreshNext;
     uint32_t lastPresentMs;
+    uint8_t splashPartialCount;
 
     const char* currentScreenId;
     ScreenInfo availableScreens[2];

@@ -322,15 +322,14 @@ void setup() {
   #if HAS_DISPLAY
   if (!fast_wake) {
     display_manager_init(&config);
-    it8951_render_full_white();
     {
       char status[64];
       snprintf(status, sizeof(status), "Display OK %dx%d r%d", DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_ROTATION);
       display_manager_set_splash_status(status);
-      display_manager_render_now();
+      display_manager_render_full_now();
     }
     display_manager_set_splash_status("Booting...");
-    display_manager_render_full_now();
+    display_manager_render_now_ex(false);
     display_manager_set_splash_status("Loading config...");
     display_manager_render_now();
     display_manager_set_splash_status(config_loaded ? "Config loaded" : "Using defaults");

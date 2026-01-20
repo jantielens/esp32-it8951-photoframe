@@ -12,7 +12,7 @@ DisplayManager* displayManager = nullptr;
 
 DisplayManager::DisplayManager(DeviceConfig* cfg)
     : driver(nullptr), config(cfg), uiActive(false), forceFullRefreshNext(false),
-      lastPresentMs(0), currentScreenId(nullptr), screenCount(0)
+      lastPresentMs(0), splashPartialCount(0), currentScreenId(nullptr), screenCount(0)
 #if HAS_IMAGE_API
     , directImage(this)
 #endif
@@ -78,10 +78,26 @@ void DisplayManager::renderNow(bool fullRefresh) {
         return;
     }
 
-    const bool do_full = fullRefresh || forceFullRefreshNext;
-    ui.render(do_full);
+    const bool is_splash = currentScreenId && strcmp(currentScreenId, "splash") == 0;
+    const uint8_t kSplashPartialMax = 5;
+    bool do_full = fullRefresh || forceFullRefreshNext;
+    if (is_splash && splashPartialCount >= kSplashPartialMax) {
+        do_full = true;
+    }
+
+    ui.render(do_full, is_splash && !do_full);
     lastPresentMs = now_ms;
     forceFullRefreshNext = false;
+
+    if (is_splash) {
+        if (do_full) {
+            splashPartialCount = 0;
+        } else if (ui.didPartialLast()) {
+            splashPartialCount++;
+        } else {
+            splashPartialCount = 0;
+        }
+    }
 }
 
 void DisplayManager::renderFullNow() {

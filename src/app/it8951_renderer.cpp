@@ -853,7 +853,11 @@ bool it8951_render_g4_region(const uint8_t* g4_region, uint16_t x, uint16_t y,
     }
 
     const unsigned long refresh_start = millis();
-    display.refresh(full_refresh);
+    if (full_refresh) {
+        display.refresh(true);
+    } else {
+        display.refresh((int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h);
+    }
     LOG_DURATION("EINK", "Refresh", refresh_start);
 
     LOG_DURATION("EINK", "RenderG4Region", start_ms);
