@@ -11,3 +11,8 @@ uint32_t rtc_image_state_get_last_image_index();
 void rtc_image_state_set_last_image_index(uint32_t index);
 const char* rtc_image_state_get_last_image_name();
 void rtc_image_state_set_last_image_name(const char *name);
+
+// Priority image (render once, then clear).
+const char* rtc_image_state_get_priority_image_name();
+void rtc_image_state_set_priority_image_name(const char *name);
+void rtc_image_state_clear_priority_image_name();

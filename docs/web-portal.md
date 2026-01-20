@@ -201,9 +201,7 @@ Real-time device health monitoring integrated as a header badge with expandable 
 **Available In:** Full Mode only (redirects to Network page in AP mode)
 
 **Sections:**
-- **👋 Hello World**: Welcome message with customization tip
-- **⚙️ Sample Settings**: Example configuration field (dummy_setting)
-- **📸 Photo Cycle**: Sleep timeout, image selection mode, always-on toggle
+- **☁️ Azure Blob Pull-on-Wake**: Blob SAS URL for device container (List/Read/Delete)
 
 **Layout:** Two sections side-by-side on desktop (≥768px), stacked on mobile
 

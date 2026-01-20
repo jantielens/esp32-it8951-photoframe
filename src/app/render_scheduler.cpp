@@ -1,7 +1,7 @@
 #include "render_scheduler.h"
 
 #include "sd_storage_service.h"
-#include "it8951_renderer.h"
+#include "image_render_service.h"
 #include "rtc_state.h"
 #include "log_manager.h"
 
@@ -13,9 +13,15 @@ static bool g_pending_refresh = true;
 static unsigned long g_last_refresh_ms = 0;
 static unsigned long g_next_attempt_ms = 0;
 static SdImageSelectMode g_mode = SdImageSelectMode::Random;
+static RenderPreEnqueueHook g_pre_enqueue_hook = nullptr;
+static void *g_pre_enqueue_context = nullptr;
 
 static bool enqueue_render_job() {
     if (g_render_job_id != 0) return false;
+
+    if (g_pre_enqueue_hook) {
+        g_pre_enqueue_hook(g_pre_enqueue_context);
+    }
 
     uint32_t working_index = rtc_image_state_get_last_image_index();
     char working_name_buf[64] = {0};
@@ -79,6 +85,11 @@ void render_scheduler_request_refresh() {
     g_pending_refresh = true;
 }
 
+void render_scheduler_set_pre_enqueue_hook(RenderPreEnqueueHook hook, void *context) {
+    g_pre_enqueue_hook = hook;
+    g_pre_enqueue_context = context;
+}
+
 void render_scheduler_tick() {
     const unsigned long now = millis();
     bool render_success = false;
@@ -119,38 +130,11 @@ bool render_scheduler_render_once(
 
     randomSeed(analogRead(0));
 
-    char g4_path[64];
     const SdImageSelectMode mode = (strcmp(config.image_selection_mode, "sequential") == 0)
         ? SdImageSelectMode::Sequential
         : SdImageSelectMode::Random;
     const uint32_t last_index = rtc_image_state_get_last_image_index();
     const char *last_name = rtc_image_state_get_last_image_name();
-    uint32_t selected_index = 0;
-    char selected_name[64] = {0};
-    if (!sd_pick_g4_image(g4_path, sizeof(g4_path), mode, last_index, last_name, &selected_index, selected_name, sizeof(selected_name))) {
-        LOGW("SD", "No .g4 files found");
-        return false;
-    }
 
-    const unsigned long disp_start = millis();
-    if (!it8951_renderer_init()) {
-        LOGE("EINK", "Init failed");
-        return false;
-    }
-    LOG_DURATION("EINK", "Init", disp_start);
-
-    LOGI("EINK", "Render G4=%s", g4_path);
-    if (!it8951_render_g4(g4_path)) {
-        LOGE("EINK", "Render G4 failed");
-        return false;
-    }
-
-    LOGI("EINK", "Render G4 complete");
-
-    if (mode == SdImageSelectMode::Sequential) {
-        rtc_image_state_set_last_image_index(selected_index);
-        rtc_image_state_set_last_image_name(selected_name);
-    }
-
-    return true;
+    return image_render_service_render_next(mode, last_index, last_name);
 }

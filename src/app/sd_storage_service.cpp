@@ -3,6 +3,7 @@
 #include "log_manager.h"
 #include "rtc_state.h"
 #include "it8951_renderer.h"
+#include "image_render_service.h"
 
 #include <SD.h>
 #include <vector>
@@ -252,37 +253,9 @@ static bool write_upload_to_sd(SdJob *job) {
 static bool handle_render_next(SdJob *job) {
     if (!job) return false;
 
-    char g4_path[64] = {0};
-    char selected_name[64] = {0};
-    uint32_t selected_index = 0;
-
-    if (!sd_pick_g4_image(
-            g4_path,
-            sizeof(g4_path),
-            job->mode,
-            job->last_index,
-            job->last_name,
-            &selected_index,
-            selected_name,
-            sizeof(selected_name)
-        )) {
-        job_set_message(job, "No .g4 images");
-        return false;
-    }
-
-    if (!it8951_renderer_init()) {
-        job_set_message(job, "Render init failed");
-        return false;
-    }
-
-    if (!it8951_render_g4(g4_path)) {
+    if (!image_render_service_render_next(job->mode, job->last_index, job->last_name)) {
         job_set_message(job, "Render failed");
         return false;
-    }
-
-    if (job->mode == SdImageSelectMode::Sequential) {
-        rtc_image_state_set_last_image_index(selected_index);
-        rtc_image_state_set_last_image_name(selected_name);
     }
 
     return true;

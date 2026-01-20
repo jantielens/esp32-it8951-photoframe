@@ -5,6 +5,7 @@
 #include "rtc_state.h"
 #include "device_telemetry.h"
 #include "input_manager.h"
+#include "blob_pull.h"
 #include "portal_controller.h"
 #include "render_scheduler.h"
 #if HEALTH_HISTORY_ENABLED
@@ -12,6 +13,7 @@
 #endif
 
 #include <SPI.h>
+#include <WiFi.h>
 #include <esp_sleep.h>
 #include <driver/rtc_io.h>
 static constexpr uint32_t kDefaultSleepSeconds = 60;
@@ -26,6 +28,58 @@ static constexpr uint32_t kTouchDebounceMs = 250;
 static constexpr uint32_t kNoImageRetryMs = 5000;
 
 static SPIClass sdSpi(HSPI);
+
+struct BlobPullContext {
+  const DeviceConfig *config = nullptr;
+  SPIClass *spi = nullptr;
+  SdCardPins pins = {};
+  uint32_t frequency_hz = 0;
+};
+
+static BlobPullContext g_blob_pull_ctx = {};
+
+static bool blob_pull_pre_enqueue(void *ctx) {
+  BlobPullContext *state = static_cast<BlobPullContext *>(ctx);
+  if (!state || !state->config || !state->spi) return false;
+  if (strlen(state->config->blob_sas_url) == 0) return false;
+  LOGI("Blob", "Scheduler hook: attempting blob download");
+  return blob_pull_download_once(*state->config, *state->spi, state->pins, state->frequency_hz);
+}
+
+static bool connect_wifi_for_blob(const DeviceConfig &config) {
+  if (strlen(config.wifi_ssid) == 0) return false;
+
+  if (WiFi.status() == WL_CONNECTED) {
+    return true;
+  }
+
+  LOGI("WiFi", "Blob pull: connect start (ssid set)");
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(config.wifi_ssid, config.wifi_password);
+
+  for (int attempt = 0; attempt < WIFI_MAX_ATTEMPTS; attempt++) {
+    const unsigned long start = millis();
+    while (millis() - start < 3000) {
+      if (WiFi.status() == WL_CONNECTED) {
+        LOGI("WiFi", "Blob pull: connected %s", WiFi.localIP().toString().c_str());
+        return true;
+      }
+      delay(100);
+    }
+    LOGW("WiFi", "Blob pull: connect attempt %d/%d failed", attempt + 1, WIFI_MAX_ATTEMPTS);
+  }
+
+  LOGW("WiFi", "Blob pull: connect failed (max attempts)");
+  return false;
+}
+
+static void disconnect_wifi_for_blob() {
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFi.disconnect(true);
+    delay(50);
+  }
+  WiFi.mode(WIFI_OFF);
+}
 
 static SdCardPins make_sd_pins() {
   SdCardPins pins = {
@@ -88,6 +142,12 @@ static void run_always_on(DeviceConfig &config, bool config_loaded) {
       (unsigned long)refresh_interval_ms,
       (unsigned long)kNoImageRetryMs);
     render_scheduler_init(config, refresh_interval_ms, kNoImageRetryMs);
+
+    g_blob_pull_ctx.config = &config;
+    g_blob_pull_ctx.spi = &sdSpi;
+    g_blob_pull_ctx.pins = pins;
+    g_blob_pull_ctx.frequency_hz = kSdFrequencyHz;
+    render_scheduler_set_pre_enqueue_hook(blob_pull_pre_enqueue, &g_blob_pull_ctx);
 
   while (true) {
     portal_controller_tick();
@@ -169,6 +229,21 @@ void setup() {
   LOGI("Mode", "Default sleep mode selected");
 
   const SdCardPins pins = make_sd_pins();
+  bool downloaded = false;
+  if (strlen(config.blob_sas_url) > 0) {
+    LOGI("Blob", "SAS configured; attempting blob pull");
+    const bool was_connected = (WiFi.status() == WL_CONNECTED);
+    if (was_connected || connect_wifi_for_blob(config)) {
+      downloaded = blob_pull_download_once(config, sdSpi, pins, kSdFrequencyHz);
+    }
+    if (!was_connected) {
+      disconnect_wifi_for_blob();
+    }
+    if (!downloaded) {
+      LOGW("Blob", "No blob downloaded; falling back to SD");
+    }
+  }
+
   if (!render_scheduler_render_once(config, sdSpi, pins, kSdFrequencyHz)) {
     LOGW("Mode", "Render once failed; entering deep sleep");
     enter_deep_sleep(sleep_seconds);

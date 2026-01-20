@@ -69,7 +69,7 @@ void handleGetConfig(AsyncWebServerRequest *request) {
     }
 
     // Create JSON response (don't include passwords)
-    std::shared_ptr<BasicJsonDocument<PsramJsonAllocator>> doc = make_psram_json_doc(2304);
+    std::shared_ptr<BasicJsonDocument<PsramJsonAllocator>> doc = make_psram_json_doc(4096);
     if (doc && doc->capacity() > 0) {
         (*doc)["wifi_ssid"] = current_config->wifi_ssid;
         (*doc)["wifi_password"] = ""; // Don't send password
@@ -108,6 +108,10 @@ void handleGetConfig(AsyncWebServerRequest *request) {
         (*doc)["basic_auth_username"] = current_config->basic_auth_username;
         (*doc)["basic_auth_password"] = "";
         (*doc)["basic_auth_password_set"] = (strlen(current_config->basic_auth_password) > 0);
+
+        // Azure Blob pull-on-wake (SAS not returned)
+        (*doc)["blob_sas_url"] = "";
+        (*doc)["blob_sas_url_set"] = (strlen(current_config->blob_sas_url) > 0);
 
         // Display settings
         (*doc)["backlight_brightness"] = current_config->backlight_brightness;
@@ -231,7 +235,7 @@ void handlePostConfig(AsyncWebServerRequest *request, uint8_t *data, size_t len,
     if (body) body[body_len] = 0;
     portEXIT_CRITICAL(&g_config_post_mux);
 
-    BasicJsonDocument<PsramJsonAllocator> doc(2304);
+    BasicJsonDocument<PsramJsonAllocator> doc(4096);
     DeserializationError error = deserializeJson(doc, body, body_len);
 
     if (error) {
@@ -399,6 +403,14 @@ void handlePostConfig(AsyncWebServerRequest *request, uint8_t *data, size_t len,
         const char* pass = doc["basic_auth_password"];
         if (pass && strlen(pass) > 0) {
             strlcpy(current_config->basic_auth_password, pass, CONFIG_BASIC_AUTH_PASSWORD_MAX_LEN);
+        }
+    }
+
+    // Azure Blob SAS URL (only update if provided and not empty)
+    if (doc.containsKey("blob_sas_url")) {
+        const char* url = doc["blob_sas_url"];
+        if (url && strlen(url) > 0) {
+            strlcpy(current_config->blob_sas_url, url, CONFIG_BLOB_SAS_URL_MAX_LEN);
         }
     }
 

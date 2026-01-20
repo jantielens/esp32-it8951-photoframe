@@ -39,6 +39,9 @@
 #define CONFIG_BASIC_AUTH_USERNAME_MAX_LEN 32
 #define CONFIG_BASIC_AUTH_PASSWORD_MAX_LEN 64
 
+// Azure Blob pull-on-wake settings
+#define CONFIG_BLOB_SAS_URL_MAX_LEN 512
+
 // Configuration structure
 struct DeviceConfig {
     // WiFi credentials
@@ -78,6 +81,9 @@ struct DeviceConfig {
     bool basic_auth_enabled;
     char basic_auth_username[CONFIG_BASIC_AUTH_USERNAME_MAX_LEN];
     char basic_auth_password[CONFIG_BASIC_AUTH_PASSWORD_MAX_LEN];
+
+    // Azure Blob pull-on-wake (optional)
+    char blob_sas_url[CONFIG_BLOB_SAS_URL_MAX_LEN];
 
 #if HAS_DISPLAY
     // Screen saver (burn-in prevention v1): backlight sleep on inactivity

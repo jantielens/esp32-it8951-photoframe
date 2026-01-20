@@ -57,6 +57,16 @@
             </section>
             </div>
 
+            <!-- Azure Blob Pull-on-Wake -->
+            <section class="section">
+                <h2>☁️ Azure Blob Pull-on-Wake</h2>
+                <div class="form-group">
+                    <label for="blob_sas_url">Blob SAS URL</label>
+                    <input type="password" id="blob_sas_url" name="blob_sas_url" maxlength="511" placeholder="https://&lt;account&gt;.blob.core.windows.net/&lt;container&gt;?&lt;sas&gt;">
+                    <small>Read-only SAS scoped to this device container (List/Read/Delete). Leave blank to keep existing.</small>
+                </div>
+            </section>
+
             <!-- SD Image Management (G4) -->
             <section class="section" id="sd-images-section">
                 <h2>🖼️ SD Images (G4)</h2>

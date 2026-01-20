@@ -7,6 +7,7 @@ struct RtcImageState {
     uint32_t magic;
     uint32_t last_image_index;
     char last_image_name[RTC_IMAGE_NAME_MAX_LEN];
+    char priority_image_name[RTC_IMAGE_NAME_MAX_LEN];
 };
 
 static constexpr uint32_t kRtcImageStateMagic = 0x52544332; // "RTC2"
@@ -18,6 +19,7 @@ static void rtc_image_state_reset() {
     g_rtc_image_state.magic = kRtcImageStateMagic;
     g_rtc_image_state.last_image_index = kRtcInvalidIndex;
     g_rtc_image_state.last_image_name[0] = '\0';
+    g_rtc_image_state.priority_image_name[0] = '\0';
 }
 } // namespace
 
@@ -49,4 +51,23 @@ void rtc_image_state_set_last_image_name(const char *name) {
         return;
     }
     strlcpy(g_rtc_image_state.last_image_name, name, sizeof(g_rtc_image_state.last_image_name));
+}
+
+const char* rtc_image_state_get_priority_image_name() {
+    rtc_image_state_init();
+    return g_rtc_image_state.priority_image_name;
+}
+
+void rtc_image_state_set_priority_image_name(const char *name) {
+    rtc_image_state_init();
+    if (!name) {
+        g_rtc_image_state.priority_image_name[0] = '\0';
+        return;
+    }
+    strlcpy(g_rtc_image_state.priority_image_name, name, sizeof(g_rtc_image_state.priority_image_name));
+}
+
+void rtc_image_state_clear_priority_image_name() {
+    rtc_image_state_init();
+    g_rtc_image_state.priority_image_name[0] = '\0';
 }

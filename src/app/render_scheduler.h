@@ -7,6 +7,9 @@ void render_scheduler_init(const DeviceConfig &config, uint32_t refresh_interval
 void render_scheduler_request_refresh();
 void render_scheduler_tick();
 
+typedef bool (*RenderPreEnqueueHook)(void *context);
+void render_scheduler_set_pre_enqueue_hook(RenderPreEnqueueHook hook, void *context);
+
 bool render_scheduler_render_once(
     const DeviceConfig &config,
     SPIClass &spi,

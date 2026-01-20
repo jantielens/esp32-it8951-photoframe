@@ -647,6 +647,14 @@ async function loadConfig() {
         // Dummy setting
         setValueIfExists('dummy_setting', config.dummy_setting);
 
+        // Azure Blob pull-on-wake (SAS not returned)
+        const blobField = document.getElementById('blob_sas_url');
+        if (blobField) {
+            blobField.value = '';
+            const saved = config.blob_sas_url_set === true;
+            if (saved) blobField.placeholder = '(saved - leave blank to keep)';
+        }
+
         // Photo cycle settings
         setValueIfExists('sleep_timeout_seconds', config.sleep_timeout_seconds);
         setValueIfExists('image_selection_mode', config.image_selection_mode);
@@ -725,6 +733,7 @@ function extractFormFields(formData) {
     const fields = ['wifi_ssid', 'wifi_password', 'device_name', 'fixed_ip', 
                     'subnet_mask', 'gateway', 'dns1', 'dns2', 'dummy_setting',
                     'sleep_timeout_seconds', 'image_selection_mode', 'always_on',
+                    'blob_sas_url',
                     'mqtt_host', 'mqtt_port', 'mqtt_username', 'mqtt_password', 'mqtt_interval_seconds',
                     'basic_auth_enabled', 'basic_auth_username', 'basic_auth_password',
                     'backlight_brightness',

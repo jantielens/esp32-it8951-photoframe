@@ -36,6 +36,9 @@
 #define KEY_MQTT_INTERVAL  "mqtt_int"
 #define KEY_BACKLIGHT_BRIGHTNESS "bl_bright"
 
+// Azure Blob pull-on-wake
+#define KEY_BLOB_SAS_URL   "blob_sas"
+
 // Web portal Basic Auth
 #define KEY_BASIC_AUTH_ENABLED "ba_en"
 #define KEY_BASIC_AUTH_USER    "ba_user"
@@ -141,6 +144,9 @@ bool config_manager_load(DeviceConfig *config) {
         config->mqtt_port = 0;
         config->mqtt_interval_seconds = 0;
 
+        // Azure Blob defaults
+        config->blob_sas_url[0] = '\0';
+
         // Basic Auth defaults
         config->basic_auth_enabled = false;
         config->basic_auth_username[0] = '\0';
@@ -198,6 +204,9 @@ bool config_manager_load(DeviceConfig *config) {
     preferences.getString(KEY_MQTT_USER, config->mqtt_username, CONFIG_MQTT_USERNAME_MAX_LEN);
     preferences.getString(KEY_MQTT_PASS, config->mqtt_password, CONFIG_MQTT_PASSWORD_MAX_LEN);
     config->mqtt_interval_seconds = preferences.getUShort(KEY_MQTT_INTERVAL, 0);
+
+    // Azure Blob pull-on-wake
+    preferences.getString(KEY_BLOB_SAS_URL, config->blob_sas_url, CONFIG_BLOB_SAS_URL_MAX_LEN);
     
     // Load display settings
     config->backlight_brightness = preferences.getUChar(KEY_BACKLIGHT_BRIGHTNESS, 100);
@@ -281,6 +290,9 @@ bool config_manager_save(const DeviceConfig *config) {
     preferences.putString(KEY_MQTT_USER, config->mqtt_username);
     preferences.putString(KEY_MQTT_PASS, config->mqtt_password);
     preferences.putUShort(KEY_MQTT_INTERVAL, config->mqtt_interval_seconds);
+
+    // Azure Blob pull-on-wake
+    preferences.putString(KEY_BLOB_SAS_URL, config->blob_sas_url);
     
     // Save display settings
     LOGI("Config", "Saving brightness: %d%%", config->backlight_brightness);
@@ -368,6 +380,8 @@ void config_manager_print(const DeviceConfig *config) {
     } else {
         LOGI("Config", "IP: DHCP");
     }
+
+    LOGI("Config", "Blob SAS URL: %s", strlen(config->blob_sas_url) > 0 ? "set" : "(none)");
 
 #if HAS_MQTT
     if (strlen(config->mqtt_host) > 0) {
