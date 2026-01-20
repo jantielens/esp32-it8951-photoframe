@@ -14,13 +14,6 @@
 
 // Include all screen implementations
 #include "screens/splash_screen.cpp"
-#include "screens/info_screen.cpp"
-#include "screens/test_screen.cpp"
-
-#if HAS_IMAGE_API
-#include "screens/direct_image_screen.cpp"
-#include "screens/lvgl_image_screen.cpp"
-#endif
 
 #endif // HAS_DISPLAY
 

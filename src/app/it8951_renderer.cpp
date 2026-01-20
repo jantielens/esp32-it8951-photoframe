@@ -1,6 +1,7 @@
 #include "it8951_renderer.h"
 
 #include "board_config.h"
+#include "display_manager.h"
 #include "log_manager.h"
 
 #include <SD.h>
@@ -14,6 +15,8 @@
 GxEPD2_it78_1872x1404 display(IT8951_CS_PIN, IT8951_DC_PIN, IT8951_RST_PIN, IT8951_BUSY_PIN);
 
 static bool g_display_ready = false;
+static volatile bool g_render_busy = false;
+static portMUX_TYPE g_render_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static const uint16_t kInputBufferPixels = 1872;
 static const uint16_t kMaxRowWidth = 1872;
@@ -70,6 +73,28 @@ static bool ensure_buffers() {
         log_buf("g4_chunk", g4_chunk_buffer);
     }
     return buffers_ready;
+}
+
+static void set_render_busy(bool busy) {
+    portENTER_CRITICAL(&g_render_mux);
+    g_render_busy = busy;
+    portEXIT_CRITICAL(&g_render_mux);
+}
+
+static bool is_ui_active() {
+#if HAS_DISPLAY
+    return display_manager_ui_is_active();
+#else
+    return false;
+#endif
+}
+
+bool it8951_renderer_is_busy() {
+    bool busy = false;
+    portENTER_CRITICAL(&g_render_mux);
+    busy = g_render_busy;
+    portEXIT_CRITICAL(&g_render_mux);
+    return busy;
 }
 
 // IT8951 I80 command constants (mirroring GxEPD2 driver)
@@ -334,7 +359,7 @@ static bool draw_bmp_16gray(File &file, int16_t x, int16_t y) {
 
             if (valid) {
                 const unsigned long refresh_start = millis();
-                display.refresh(false);
+                display.refresh(true);
                 LOG_DURATION("EINK", "Refresh", refresh_start);
             }
         }
@@ -611,9 +636,12 @@ bool it8951_convert_bmp_to_raw_g4(const char *bmp_path, const char *raw_path, co
 bool it8951_render_raw8(const char *raw_path) {
     if (!raw_path) return false;
     if (!g_display_ready && !it8951_renderer_init()) return false;
+    if (it8951_renderer_is_busy()) return false;
+    set_render_busy(true);
     File raw = SD.open(raw_path, FILE_READ);
     if (!raw) {
         LOGE("EINK", "RAW open failed");
+        set_render_busy(false);
         return false;
     }
 
@@ -630,15 +658,23 @@ bool it8951_render_raw8(const char *raw_path) {
     }
 
     LOG_DURATION("EINK", "RenderRaw", start_ms);
+    set_render_busy(false);
     return ok;
 }
 
 bool it8951_render_g4(const char *g4_path) {
     if (!g4_path) return false;
+    if (is_ui_active()) {
+        LOGE("EINK", "Render blocked: UI active. Call display_manager_ui_stop() before rendering.");
+        return false;
+    }
     if (!g_display_ready && !it8951_renderer_init()) return false;
+    if (it8951_renderer_is_busy()) return false;
+    set_render_busy(true);
     File g4 = SD.open(g4_path, FILE_READ);
     if (!g4) {
         LOGE("EINK", "G4 open failed");
+        set_render_busy(false);
         return false;
     }
 
@@ -655,10 +691,143 @@ bool it8951_render_g4(const char *g4_path) {
     }
 
     LOG_DURATION("EINK", "RenderG4", start_ms);
+    set_render_busy(false);
     return ok;
+}
+
+bool it8951_render_g4_buffer(const uint8_t* g4, uint16_t w, uint16_t h) {
+    if (!g4) return false;
+    if (is_ui_active()) {
+        LOGE("EINK", "Render blocked: UI active. Call display_manager_ui_stop() before rendering.");
+        return false;
+    }
+    if (!g_display_ready && !it8951_renderer_init()) return false;
+    if (it8951_renderer_is_busy()) return false;
+    set_render_busy(true);
+
+    if (w != display.WIDTH || h != display.HEIGHT) {
+        LOGW("EINK", "G4 buffer size mismatch %ux%u (panel %ux%u)",
+             (unsigned)w, (unsigned)h, (unsigned)display.WIDTH, (unsigned)display.HEIGHT);
+    }
+
+    const unsigned long start_ms = millis();
+    const uint16_t packed_width = w / 2;
+
+    it8951_write_command16(IT8951_TCON_SYS_RUN);
+
+    for (uint16_t row = 0; row < h; row += kChunkRows) {
+        const uint16_t chunk_rows = (uint16_t)min((uint16_t)kChunkRows, (uint16_t)(h - row));
+        const size_t chunk_bytes = (size_t)chunk_rows * packed_width;
+        const uint8_t* chunk_ptr = g4 + (size_t)row * packed_width;
+
+        it8951_set_partial_area_4bpp(0, row, w, chunk_rows);
+        it8951_write_data_bytes(chunk_ptr, chunk_bytes);
+        it8951_write_command16(IT8951_TCON_LD_IMG_END);
+
+        if ((row % 200) == 0) {
+            LOGD("EINK", "G4 buf Row %u/%u", (unsigned)row, (unsigned)h);
+        }
+
+        if ((row % 32) == 0) {
+            yield();
+        }
+    }
+
+    const unsigned long refresh_start = millis();
+    display.refresh(true);
+    LOG_DURATION("EINK", "Refresh", refresh_start);
+
+    LOG_DURATION("EINK", "RenderG4Buf", start_ms);
+    set_render_busy(false);
+    return true;
+}
+
+bool it8951_render_g4_buffer_region(const uint8_t* g4, uint16_t panel_w, uint16_t panel_h,
+                                    uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+    if (!g4) return false;
+    if (w == 0 || h == 0) return false;
+    if (!g_display_ready && !it8951_renderer_init()) return false;
+    if (it8951_renderer_is_busy()) return false;
+
+    if (x >= panel_w || y >= panel_h) return false;
+
+    // Clamp region within panel bounds.
+    if (x + w > panel_w) w = panel_w - x;
+    if (y + h > panel_h) h = panel_h - y;
+
+    // 4bpp packed: align x and width to even pixel boundaries.
+    if (x & 1U) {
+        x -= 1;
+        if (w + 1 <= panel_w) w += 1;
+    }
+    if (w & 1U) {
+        if (x + w + 1 <= panel_w) {
+            w += 1;
+        } else if (w > 1) {
+            w -= 1;
+        }
+    }
+
+    if (w == 0 || h == 0) return false;
+
+    set_render_busy(true);
+    const unsigned long start_ms = millis();
+    const uint16_t packed_width = panel_w / 2;
+    const uint16_t region_bytes_per_row = w / 2;
+
+    it8951_write_command16(IT8951_TCON_SYS_RUN);
+
+    for (uint16_t row = 0; row < h; row += kChunkRows) {
+        const uint16_t chunk_rows = (uint16_t)min((uint16_t)kChunkRows, (uint16_t)(h - row));
+        const uint16_t yrow = (uint16_t)(y + row);
+
+        // Pack region rows into contiguous chunk buffer.
+        for (uint16_t r = 0; r < chunk_rows; r++) {
+            const uint32_t src_row = (uint32_t)(yrow + r);
+            const uint32_t src_offset = src_row * packed_width + (x / 2);
+            const uint32_t dst_offset = (uint32_t)r * region_bytes_per_row;
+            memcpy(&g4_chunk_buffer[dst_offset], &g4[src_offset], region_bytes_per_row);
+        }
+
+        const size_t chunk_bytes = (size_t)chunk_rows * region_bytes_per_row;
+        it8951_set_partial_area_4bpp(x, yrow, w, chunk_rows);
+        it8951_write_data_bytes(g4_chunk_buffer, chunk_bytes);
+        it8951_write_command16(IT8951_TCON_LD_IMG_END);
+
+        if ((row % 200) == 0) {
+            LOGD("EINK", "G4 buf region Row %u/%u", (unsigned)row, (unsigned)h);
+        }
+
+        if ((row % 32) == 0) {
+            yield();
+        }
+    }
+
+    const unsigned long refresh_start = millis();
+    display.refresh(true);
+    LOG_DURATION("EINK", "Refresh", refresh_start);
+
+    LOG_DURATION("EINK", "RenderG4BufRegion", start_ms);
+    set_render_busy(false);
+    return true;
 }
 
 void it8951_renderer_hibernate() {
     if (!g_display_ready) return;
     display.hibernate();
+}
+
+bool it8951_render_full_white() {
+    if (!g_display_ready && !it8951_renderer_init()) return false;
+    if (it8951_renderer_is_busy()) return false;
+
+    set_render_busy(true);
+    const unsigned long start_ms = millis();
+
+    display.clearScreen();
+    display.refresh(false);
+
+    LOG_DURATION("EINK", "FullWhite", start_ms);
+    set_render_busy(false);
+    return true;
 }

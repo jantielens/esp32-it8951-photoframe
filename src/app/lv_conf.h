@@ -88,13 +88,13 @@
 #define LV_FONT_MONTSERRAT_30 0
 #define LV_FONT_MONTSERRAT_32 0
 #define LV_FONT_MONTSERRAT_34 0
-#define LV_FONT_MONTSERRAT_36 0
+#define LV_FONT_MONTSERRAT_36 1
 #define LV_FONT_MONTSERRAT_38 0
 #define LV_FONT_MONTSERRAT_40 0
 #define LV_FONT_MONTSERRAT_42 0
 #define LV_FONT_MONTSERRAT_44 0
 #define LV_FONT_MONTSERRAT_46 0
-#define LV_FONT_MONTSERRAT_48 0
+#define LV_FONT_MONTSERRAT_48 1
 
 /* Demonstrate special features */
 #define LV_FONT_MONTSERRAT_12_SUBPX      0
@@ -163,7 +163,7 @@
 #define LV_USE_TABLE      0
 
 /* Used by SplashScreen */
-#define LV_USE_SPINNER    1
+#define LV_USE_SPINNER    0
 
 /* Enable scaling/rotation of images (needed for lv_img_set_zoom). */
 #ifndef LV_USE_IMG_TRANSFORM

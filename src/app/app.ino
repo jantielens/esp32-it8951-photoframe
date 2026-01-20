@@ -8,6 +8,9 @@
 #include "blob_pull.h"
 #include "portal_controller.h"
 #include "render_scheduler.h"
+#if HAS_DISPLAY
+#include "display_manager.h"
+#endif
 #if HEALTH_HISTORY_ENABLED
 #include "health_history.h"
 #endif
@@ -53,6 +56,11 @@ static bool connect_wifi_for_blob(const DeviceConfig &config) {
     return true;
   }
 
+  #if HAS_DISPLAY
+    display_manager_set_splash_status("Connecting to WiFi...");
+    display_manager_render_now();
+  #endif
+
   LOGI("WiFi", "Blob pull: connect start (ssid set)");
   WiFi.mode(WIFI_STA);
   WiFi.begin(config.wifi_ssid, config.wifi_password);
@@ -61,6 +69,10 @@ static bool connect_wifi_for_blob(const DeviceConfig &config) {
     const unsigned long start = millis();
     while (millis() - start < 3000) {
       if (WiFi.status() == WL_CONNECTED) {
+      #if HAS_DISPLAY
+        display_manager_set_splash_status("WiFi connected");
+        display_manager_render_now();
+      #endif
         LOGI("WiFi", "Blob pull: connected %s", WiFi.localIP().toString().c_str());
         return true;
       }
@@ -70,6 +82,10 @@ static bool connect_wifi_for_blob(const DeviceConfig &config) {
   }
 
   LOGW("WiFi", "Blob pull: connect failed (max attempts)");
+  #if HAS_DISPLAY
+  display_manager_set_splash_status("WiFi connect failed");
+  display_manager_render_now();
+  #endif
   return false;
 }
 
@@ -114,6 +130,11 @@ static void enter_deep_sleep(uint32_t sleep_seconds) {
 static void run_config_mode(DeviceConfig &config, bool config_loaded) {
   LOGI("Portal", "Config mode start");
 
+  #if HAS_DISPLAY
+  display_manager_set_splash_status("AP mode: configure WiFi");
+  display_manager_render_now();
+  #endif
+
   const SdCardPins pins = make_sd_pins();
   portal_controller_start(config, config_loaded, sdSpi, pins, kSdFrequencyHz);
 
@@ -129,6 +150,11 @@ static void run_config_mode(DeviceConfig &config, bool config_loaded) {
 
 static void run_always_on(DeviceConfig &config, bool config_loaded) {
   LOGI("Mode", "Always-on enabled");
+
+  #if HAS_DISPLAY
+  display_manager_set_splash_status("Always-on mode");
+  display_manager_render_now();
+  #endif
 
   const SdCardPins pins = make_sd_pins();
   portal_controller_start(config, config_loaded, sdSpi, pins, kSdFrequencyHz);
@@ -193,13 +219,36 @@ void setup() {
   device_telemetry_start_health_window_sampling();
 
   DeviceConfig config = {};
+
+  #if HAS_DISPLAY
+  display_manager_init(&config);
+  it8951_render_full_white();
+  {
+    char status[64];
+    snprintf(status, sizeof(status), "Display OK %dx%d r%d", DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_ROTATION);
+    display_manager_set_splash_status(status);
+    display_manager_render_now();
+  }
+  display_manager_set_splash_status("Booting...");
+  display_manager_render_full_now();
+  #endif
+
   config_manager_init();
+  #if HAS_DISPLAY
+  display_manager_set_splash_status("Loading config...");
+  display_manager_render_now();
+  #endif
   const bool config_loaded = config_manager_load(&config);
   if (!config_loaded || strlen(config.device_name) == 0) {
     String default_name = config_manager_get_default_device_name();
     strlcpy(config.device_name, default_name.c_str(), CONFIG_DEVICE_NAME_MAX_LEN);
   }
   rtc_image_state_init();
+
+  #if HAS_DISPLAY
+  display_manager_set_splash_status(config_loaded ? "Config loaded" : "Using defaults");
+  display_manager_render_now();
+  #endif
 
     LOGI("Boot", "Config loaded=%s always_on=%s sleep=%lus wifi=%s mode=%s",
       config_loaded ? "true" : "false",
@@ -215,6 +264,10 @@ void setup() {
   const uint16_t long_press_ms = config.long_press_ms > 0 ? config.long_press_ms : kDefaultLongPressMs;
   if (config.always_on) {
     LOGI("Mode", "Always-on selected");
+#if HAS_DISPLAY
+    display_manager_set_splash_status("Start rendering image");
+    display_manager_render_now();
+#endif
     run_always_on(config, config_loaded);
     return;
   } else {

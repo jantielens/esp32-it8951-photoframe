@@ -8,7 +8,7 @@
 // Implements inactivity-based display sleep by fading the backlight to 0.
 // Wake sources: touch press (optional), API trigger, code trigger.
 
-#if HAS_DISPLAY
+#if HAS_DISPLAY && HAS_BACKLIGHT
 
 #include <Arduino.h>
 
@@ -70,6 +70,6 @@ inline void screen_saver_manager_wake() {}
 inline bool screen_saver_manager_is_asleep() { return false; }
 inline ScreenSaverStatus screen_saver_manager_get_status() { return {false, ScreenSaverState::Awake, 0, 0, 0}; }
 
-#endif // HAS_DISPLAY
+#endif // HAS_DISPLAY && HAS_BACKLIGHT
 
 #endif // SCREEN_SAVER_MANAGER_H

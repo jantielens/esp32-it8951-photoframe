@@ -13,9 +13,8 @@
 class SplashScreen : public Screen {
 private:
     lv_obj_t* screen;
-    lv_obj_t* logoImg;
+    lv_obj_t* titleLabel;
     lv_obj_t* statusLabel;
-    lv_obj_t* spinner;
     
 public:
     SplashScreen();

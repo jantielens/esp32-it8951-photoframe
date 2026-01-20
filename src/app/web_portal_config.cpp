@@ -431,7 +431,7 @@ void handlePostConfig(AsyncWebServerRequest *request, uint8_t *data, size_t len,
         LOGI("Config", "Backlight brightness set to %d%%", brightness);
 
         // Apply brightness immediately (will also be persisted when config saved)
-        #if HAS_DISPLAY
+        #if HAS_DISPLAY && HAS_BACKLIGHT
         display_manager_set_backlight_brightness(brightness);
 
         // Edge case: if the device was in screen saver (backlight at 0), changing brightness
@@ -441,7 +441,7 @@ void handlePostConfig(AsyncWebServerRequest *request, uint8_t *data, size_t len,
         #endif
     }
 
-    #if HAS_DISPLAY
+    #if HAS_DISPLAY && HAS_BACKLIGHT
     // Screen saver settings
     if (doc.containsKey("screen_saver_enabled")) {
         if (doc["screen_saver_enabled"].is<const char*>()) {

@@ -1,40 +1,30 @@
 
 #include "screens/splash_screen.h"
 #include "log_manager.h"
-#include "png_assets.h"
 
-static void layoutSplashBlock(lv_obj_t* screen, lv_obj_t* logoImg, lv_obj_t* statusLabel, lv_obj_t* spinner) {
-    if (!screen || !logoImg || !statusLabel || !spinner) return;
+static void layoutSplashBlock(lv_obj_t* screen, lv_obj_t* titleLabel, lv_obj_t* statusLabel) {
+    if (!screen || !titleLabel || !statusLabel) return;
 
     // Ensure LVGL has calculated object sizes before we query heights
     lv_obj_update_layout(screen);
-    lv_obj_update_layout(logoImg);
+    lv_obj_update_layout(titleLabel);
     lv_obj_update_layout(statusLabel);
-    lv_obj_update_layout(spinner);
 
-    const int top_margin = 12;
-    const int gap_logo_to_status = 14;
-    const int gap_status_to_spinner = 16;
+    const int gap_title_to_status = 16;
 
     const int screen_h = (int)lv_obj_get_height(screen);
-    const int logo_h = (int)lv_obj_get_height(logoImg);
-    const int label_h = (int)lv_obj_get_height(statusLabel);
-    const int spinner_h = (int)lv_obj_get_height(spinner);
+    const int title_h = (int)lv_obj_get_height(titleLabel);
+    const int status_h = (int)lv_obj_get_height(statusLabel);
 
-    const int block_h = logo_h + gap_logo_to_status + label_h + gap_status_to_spinner + spinner_h;
-
+    const int block_h = title_h + gap_title_to_status + status_h;
     int top = (screen_h - block_h) / 2;
-    if (block_h + top_margin * 2 > screen_h) {
-        top = top_margin;
-    }
     if (top < 0) top = 0;
 
-    lv_obj_align(logoImg, LV_ALIGN_TOP_MID, 0, top);
-    lv_obj_align_to(statusLabel, logoImg, LV_ALIGN_OUT_BOTTOM_MID, 0, gap_logo_to_status);
-    lv_obj_align_to(spinner, statusLabel, LV_ALIGN_OUT_BOTTOM_MID, 0, gap_status_to_spinner);
+    lv_obj_align(titleLabel, LV_ALIGN_TOP_MID, 0, top);
+    lv_obj_align_to(statusLabel, titleLabel, LV_ALIGN_OUT_BOTTOM_MID, 0, gap_title_to_status);
 }
 
-SplashScreen::SplashScreen() : screen(nullptr), logoImg(nullptr), statusLabel(nullptr), spinner(nullptr) {}
+SplashScreen::SplashScreen() : screen(nullptr), titleLabel(nullptr), statusLabel(nullptr) {}
 
 SplashScreen::~SplashScreen() {
     destroy();
@@ -49,12 +39,15 @@ void SplashScreen::create() {
     
     // Create screen
     screen = lv_obj_create(NULL);
-    // Override theme background to pure black
-    lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
+    // Override theme background to white (e-ink friendly)
+    lv_obj_set_style_bg_color(screen, lv_color_white(), 0);
 
-    // Logo image
-    logoImg = lv_img_create(screen);
-    lv_img_set_src(logoImg, &img_logo);
+    // Title text
+    titleLabel = lv_label_create(screen);
+    lv_label_set_text(titleLabel, "Photo Frame");
+    lv_obj_set_style_text_align(titleLabel, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(titleLabel, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_color(titleLabel, lv_color_black(), 0);
 
     // Status text
     statusLabel = lv_label_create(screen);
@@ -62,18 +55,11 @@ void SplashScreen::create() {
     lv_label_set_long_mode(statusLabel, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(statusLabel, (lv_coord_t)(lv_obj_get_width(screen) - 24));
     lv_obj_set_style_text_align(statusLabel, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(statusLabel, lv_color_make(100, 100, 100), 0);
-
-    // Spinner to show activity
-    spinner = lv_spinner_create(screen, 1000, 60);
-    lv_obj_set_size(spinner, 40, 40);
-    lv_obj_set_style_arc_color(spinner, lv_color_make(0, 150, 255), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(spinner, 4, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(spinner, lv_color_make(40, 40, 40), LV_PART_MAIN);
-    lv_obj_set_style_arc_width(spinner, 4, LV_PART_MAIN);
+    lv_obj_set_style_text_font(statusLabel, &lv_font_montserrat_36, 0);
+    lv_obj_set_style_text_color(statusLabel, lv_color_black(), 0);
 
     // Position the whole block.
-    layoutSplashBlock(screen, logoImg, statusLabel, spinner);
+    layoutSplashBlock(screen, titleLabel, statusLabel);
     
     LOGI("Splash", "Screen created");
 }
@@ -82,9 +68,8 @@ void SplashScreen::destroy() {
     if (screen) {
         lv_obj_del(screen);
         screen = nullptr;
-        logoImg = nullptr;
+        titleLabel = nullptr;
         statusLabel = nullptr;
-        spinner = nullptr;
     }
 }
 
@@ -108,7 +93,7 @@ void SplashScreen::setStatus(const char* text) {
         lv_label_set_text(statusLabel, text);
 
         // Re-layout in case the text height changed (wrapping, font changes, etc.)
-        layoutSplashBlock(screen, logoImg, statusLabel, spinner);
+        layoutSplashBlock(screen, titleLabel, statusLabel);
     } else {
         LOGE("Splash", "statusLabel is NULL");
     }

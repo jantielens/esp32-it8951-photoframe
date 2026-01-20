@@ -5,7 +5,7 @@
 
 #include <ESPAsyncWebServer.h>
 
-#if HAS_DISPLAY
+#if HAS_DISPLAY && HAS_BACKLIGHT
 
 void handleSetDisplayBrightness(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
 void handleGetDisplaySleep(AsyncWebServerRequest *request);
@@ -14,6 +14,6 @@ void handlePostDisplayWake(AsyncWebServerRequest *request);
 void handlePostDisplayActivity(AsyncWebServerRequest *request);
 void handleSetDisplayScreen(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
 
-#endif // HAS_DISPLAY
+#endif // HAS_DISPLAY && HAS_BACKLIGHT
 
 #endif // WEB_PORTAL_DISPLAY_H

@@ -1,5 +1,6 @@
 #include "image_render_service.h"
 
+#include "display_manager.h"
 #include "it8951_renderer.h"
 #include "log_manager.h"
 #include "rtc_state.h"
@@ -8,6 +9,11 @@
 
 namespace {
 static bool render_g4_path(const String &path) {
+    const bool ui_was_active = display_manager_ui_is_active();
+    if (ui_was_active) {
+        display_manager_ui_stop();
+    }
+
     const unsigned long disp_start = millis();
     if (!it8951_renderer_init()) {
         LOGE("EINK", "Init failed");

@@ -4,6 +4,7 @@
 #include "rtc_state.h"
 #include "it8951_renderer.h"
 #include "image_render_service.h"
+#include "display_manager.h"
 
 #include <SD.h>
 #include <vector>
@@ -331,6 +332,10 @@ static void worker_task(void *param) {
                     job_set_message(job, "Render init failed");
                     ok = false;
                     break;
+                }
+                const bool ui_was_active = display_manager_ui_is_active();
+                if (ui_was_active) {
+                    display_manager_ui_stop();
                 }
                 ok = it8951_render_g4(path.c_str());
                 if (!ok) job_set_message(job, "Render failed");

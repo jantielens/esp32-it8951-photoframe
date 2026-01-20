@@ -21,7 +21,7 @@ This document is a template. Sections marked with `COMPILE_FLAG_REPORT` markers 
 ## Flags (generated)
 
 <!-- BEGIN COMPILE_FLAG_REPORT:FLAGS -->
-Total flags: 42
+Total flags: 45
 
 ### Features (HAS_*)
 
@@ -34,8 +34,14 @@ Total flags: 42
 
 ### Selectors (*_DRIVER)
 
-- **DISPLAY_DRIVER** default: `DISPLAY_DRIVER_TFT_ESPI` (values: DISPLAY_DRIVER_ARDUINO_GFX, DISPLAY_DRIVER_ESP_PANEL, DISPLAY_DRIVER_ST7789V2, DISPLAY_DRIVER_TFT_ESPI) — Select the display HAL backend (one of the DISPLAY_DRIVER_* constants).
+- **DISPLAY_DRIVER** default: `DISPLAY_DRIVER_IT8951` (values: DISPLAY_DRIVER_IT8951) — Select the display HAL backend.
 - **TOUCH_DRIVER** default: `TOUCH_DRIVER_XPT2046` (values: TOUCH_DRIVER_AXS15231B, TOUCH_DRIVER_CST816S_ESP_PANEL, TOUCH_DRIVER_XPT2046) — Select the touch HAL backend (one of the TOUCH_DRIVER_* constants).
+
+### Hardware (Geometry)
+
+- **DISPLAY_HEIGHT** default: `(no default)` — Display framebuffer height in pixels.
+- **DISPLAY_ROTATION** default: `0` — Display rotation (0=portrait, 2=180°).
+- **DISPLAY_WIDTH** default: `(no default)` — Display framebuffer width in pixels.
 
 ### Hardware (Pins)
 
@@ -53,6 +59,7 @@ Total flags: 42
 
 ### Limits & Tuning
 
+- **EINK_MIN_PRESENT_INTERVAL_MS** default: `1000` — Minimum interval between e-ink refreshes.
 - **HEALTH_HISTORY_PERIOD_MS** default: `5000` — Sampling cadence for the device-side history (ms). Default aligns with UI poll.
 - **IMAGE_API_DECODE_HEADROOM_BYTES** default: `(50 * 1024)` — Extra free RAM required for decoding (bytes).
 - **IMAGE_API_DEFAULT_TIMEOUT_MS** default: `10000` — Default image display timeout in milliseconds.
@@ -60,7 +67,6 @@ Total flags: 42
 - **IMAGE_API_MAX_TIMEOUT_MS** default: `(86400UL * 1000UL)` — Maximum image display timeout in milliseconds.
 - **IMAGE_STRIP_BATCH_MAX_ROWS** default: `16` — Max rows batched per LCD transaction when decoding JPEG strips.
 - **LVGL_BUFFER_PREFER_INTERNAL** default: `false` — Prefer internal RAM over PSRAM for LVGL draw buffer allocation.
-- **LVGL_BUFFER_SIZE** default: `(DISPLAY_WIDTH * 10)` — LVGL draw buffer size in pixels (larger = faster, more RAM).
 - **LVGL_TICK_PERIOD_MS** default: `5` — LVGL tick period in milliseconds.
 - **MEMORY_TRIPWIRE_INTERNAL_MIN_BYTES** default: `0` — Default: disabled (0). Enable per-board if you want early warning logs.
 - **WEB_PORTAL_CONFIG_BODY_TIMEOUT_MS** default: `5000` — Timeout for an incomplete /api/config upload (ms) before freeing the buffer.
@@ -88,7 +94,7 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 <!-- BEGIN COMPILE_FLAG_REPORT:MATRIX_FEATURES -->
 | board-name | HAS_BACKLIGHT | HAS_BUILTIN_LED | HAS_DISPLAY | HAS_IMAGE_API | HAS_MQTT | HAS_TOUCH |
 | --- | --- | --- | --- | --- | --- | --- |
-| esp32s2-photoframe-it8951 |  |  |  |  |  |  |
+| esp32s2-photoframe-it8951 |  |  | ✅ |  |  |  |
 <!-- END COMPILE_FLAG_REPORT:MATRIX_FEATURES -->
 
 ## Board Matrix: Selectors (generated)
@@ -96,7 +102,7 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 <!-- BEGIN COMPILE_FLAG_REPORT:MATRIX_SELECTORS -->
 | board-name | DISPLAY_DRIVER | TOUCH_DRIVER |
 | --- | --- | --- |
-| esp32s2-photoframe-it8951 | — | — |
+| esp32s2-photoframe-it8951 | DISPLAY_DRIVER_IT8951 | — |
 <!-- END COMPILE_FLAG_REPORT:MATRIX_SELECTORS -->
 
 ## Usage Map (preprocessor only, generated)
@@ -104,12 +110,18 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 <!-- BEGIN COMPILE_FLAG_REPORT:USAGE -->
 - **HAS_BACKLIGHT**
   - src/app/board_config.h
-  - src/app/display_manager.cpp
   - src/app/drivers/arduino_gfx_driver.cpp
   - src/app/drivers/tft_espi_driver.cpp
+  - src/app/screen_saver_manager.cpp
+  - src/app/screen_saver_manager.h
+  - src/app/web_portal_config.cpp
+  - src/app/web_portal_display.cpp
+  - src/app/web_portal_display.h
+  - src/app/web_portal_routes.cpp
 - **HAS_BUILTIN_LED**
   - src/app/board_config.h
 - **HAS_DISPLAY**
+  - src/app/app.ino
   - src/app/board_config.h
   - src/app/config_manager.cpp
   - src/app/config_manager.h
@@ -118,8 +130,10 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/display_manager.cpp
   - src/app/ha_discovery.cpp
   - src/app/image_api.cpp
+  - src/app/it8951_renderer.cpp
   - src/app/lvgl_jpeg_decoder.cpp
   - src/app/lvgl_jpeg_decoder.h
+  - src/app/portal_controller.cpp
   - src/app/screen_saver_manager.cpp
   - src/app/screen_saver_manager.h
   - src/app/screens.cpp
@@ -134,8 +148,6 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/web_portal_routes.cpp
 - **HAS_IMAGE_API**
   - src/app/board_config.h
-  - src/app/display_manager.cpp
-  - src/app/display_manager.h
   - src/app/image_api.cpp
   - src/app/image_api.h
   - src/app/jpeg_preflight.cpp
@@ -143,7 +155,6 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/lv_conf.h
   - src/app/lvgl_jpeg_decoder.cpp
   - src/app/lvgl_jpeg_decoder.h
-  - src/app/screens.cpp
   - src/app/screens/direct_image_screen.cpp
   - src/app/screens/direct_image_screen.h
   - src/app/screens/lvgl_image_screen.cpp
@@ -177,6 +188,15 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/touch_manager.cpp
 - **BUTTON_PIN**
   - src/app/board_config.h
+- **DISPLAY_HEIGHT**
+  - src/app/board_config.h
+- **DISPLAY_ROTATION**
+  - src/app/board_config.h
+  - src/app/touch_manager.cpp
+- **DISPLAY_WIDTH**
+  - src/app/board_config.h
+- **EINK_MIN_PRESENT_INTERVAL_MS**
+  - src/app/board_config.h
 - **ESP_PANEL_SWAPBUF_PREFER_INTERNAL**
   - src/app/board_config.h
 - **HEALTH_HISTORY_ENABLED**
@@ -208,8 +228,6 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 - **LED_PIN**
   - src/app/board_config.h
 - **LVGL_BUFFER_PREFER_INTERNAL**
-  - src/app/board_config.h
-- **LVGL_BUFFER_SIZE**
   - src/app/board_config.h
 - **LVGL_TICK_PERIOD_MS**
   - src/app/board_config.h

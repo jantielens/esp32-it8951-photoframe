@@ -1,6 +1,6 @@
 #include "board_config.h"
 
-#if HAS_DISPLAY
+#if HAS_DISPLAY && HAS_BACKLIGHT
 
 #include "screen_saver_manager.h"
 #include "log_manager.h"

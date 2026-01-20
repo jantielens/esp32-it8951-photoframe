@@ -122,6 +122,23 @@ static bool http_begin(HTTPClient &http, WiFiClient &plain, WiFiClientSecure &tl
     return http.begin(plain, url);
 }
 
+static void log_memory_snapshot(const char *label) {
+    const size_t heap_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t heap_min = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t psram_free = 0;
+    size_t psram_min = 0;
+    if (psramFound()) {
+        psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        psram_min = heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM);
+    }
+    LOGI("Blob", "%s mem: heap_free=%lu heap_min=%lu psram_free=%lu psram_min=%lu",
+         label,
+         (unsigned long)heap_free,
+         (unsigned long)heap_min,
+         (unsigned long)psram_free,
+         (unsigned long)psram_min);
+}
+
 static bool http_get_string_with_retry(const SasUrlParts &sas, const String &url, String &out_body) {
     for (uint8_t attempt = 1; attempt <= kBlobHttpRetries; attempt++) {
         HTTPClient http;
@@ -131,6 +148,7 @@ static bool http_get_string_with_retry(const SasUrlParts &sas, const String &url
             LOGW("Blob", "HTTP begin failed (attempt %u/%u)", attempt, kBlobHttpRetries);
         } else {
             http.addHeader("x-ms-version", kAzureMsVersion);
+            log_memory_snapshot("HTTP list");
             const int code = http.GET();
             if (code == HTTP_CODE_OK) {
                 out_body = http.getString();
@@ -231,6 +249,7 @@ static bool download_blob_to_buffer(const SasUrlParts &sas, const String &name, 
             LOGW("Blob", "Download begin failed (attempt %u/%u)", attempt, kBlobHttpRetries);
         } else {
             http.addHeader("x-ms-version", kAzureMsVersion);
+            log_memory_snapshot("HTTP download");
             const int code = http.GET();
             if (code == HTTP_CODE_OK) {
                 WiFiClient *stream = http.getStreamPtr();

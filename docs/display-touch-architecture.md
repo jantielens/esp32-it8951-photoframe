@@ -18,6 +18,8 @@ This document describes the display and touch subsystem architecture, design pat
 
 ## Overview
 
+> Note: This project targets IT8951 e‑ink only. Legacy LCD examples below are historical and will be pruned.
+
 The display and touch subsystem is built on four main pillars:
 
 1. **Display HAL** - Isolates display hardware library specifics
@@ -27,9 +29,9 @@ The display and touch subsystem is built on four main pillars:
 
 **Key Technologies:**
 - **LVGL 8.4** - Embedded graphics library
-- **TFT_eSPI** - Default display driver (supports ILI9341, ST7789, ST7735, etc.)
-- **XPT2046_Touchscreen** - Resistive touch support
-- **FreeRTOS** - Task-based continuous rendering
+- **IT8951 + GxEPD2** - E‑ink panel driver (7.8" Waveshare)
+- **Optional touch drivers** - Future expansion
+- **Deterministic rendering** - Explicit `renderNow()` calls (no default background task)
 
 ## Architecture Layers
 
@@ -38,7 +40,7 @@ The display and touch subsystem is built on four main pillars:
 │  Application Code (app.ino)                                 │
 │  - Minimal interaction with display/touch                    │
 │  - display_manager_init(), touch_manager_init()            │
-│  - display_manager_show_info()                             │
+│  - display_manager_set_splash_status()                     │
 └──────────────────────────────────────────────────────────────┘
                         ↓
         ┌───────────────┴───────────────┐
@@ -58,20 +60,19 @@ The display and touch subsystem is built on four main pillars:
 └──────────────────┘          └──────────────────┘
         ↓                               ↓
 ┌──────────────────┐          ┌──────────────────┐
-│ TFT_eSPI_Driver  │          │ XPT2046_Driver   │
-│ LovyanGFX_Driver │          │ FT6236_Driver    │
+│ IT8951_Driver    │          │ TouchDriver      │
+│ (LVGL buffer)    │          │ (optional)       │
 └──────────────────┘          └──────────────────┘
-        ↓                               ↓
+    ↓                               ↓
 ┌──────────────────┐          ┌──────────────────┐
-│ TFT_eSPI library │          │ XPT2046 library  │
-│ LovyanGFX library│          │ FT6236 library   │
+│ GxEPD2 / IT8951  │          │ Touch library    │
+│ panel API        │          │ (future)         │
 └──────────────────┘          └──────────────────┘
 ```
 │  (Base Class)    │          │  HAL Interface   │
 │                  │          │                  │
-│  - SplashScreen  │          │ - TFT_eSPI_Driver│
-│  - InfoScreen    │          │ - LovyanGFX (fut)│
-│  - TestScreen    │          │ - Custom drivers │
+│  - SplashScreen  │          │ - IT8951_Driver  │
+│  - StatusScreen  │          │ - Custom drivers │
 └──────────────────┘          └──────────────────┘
         ↓                               ↓
 ┌─────────────────────────────────────────────────────┐
@@ -89,7 +90,7 @@ The display and touch subsystem is built on four main pillars:
 
 ### Purpose
 
-The DisplayDriver interface decouples LVGL from specific display libraries, allowing support for TFT_eSPI, LovyanGFX, or custom drivers without changing DisplayManager code.
+The DisplayDriver interface decouples LVGL from the e‑ink panel implementation, allowing buffered LVGL rendering with a single present() step.
 
 ### Interface Definition
 
@@ -101,46 +102,36 @@ public:
 
     // How the driver completes a frame:
     // - Direct: LVGL flush pushes pixels straight to the panel
-    // - Buffered: LVGL flush writes into a buffer/canvas; DisplayManager calls present()
+    // - Buffered: LVGL flush writes into a buffer; DisplayManager calls present()
     enum class RenderMode : uint8_t { Direct = 0, Buffered = 1 };
     
     // Hardware initialization
     virtual void init() = 0;
     
-    // Display configuration
-    virtual void setRotation(uint8_t rotation) = 0;
-
-    // Active coordinate space dimensions for setAddrWindow()/pushColors().
-    // Drivers should report the post-rotation width/height of their address space.
+    // Active coordinate space dimensions for the LVGL framebuffer.
     virtual int width() = 0;
     virtual int height() = 0;
-    virtual void setBacklight(bool on) = 0;
-    virtual void applyDisplayFixes() = 0;
-    
-    // Brightness control (optional - only when HAS_BACKLIGHT enabled)
-    virtual void setBacklightBrightness(uint8_t brightness_percent) {}  // 0-100%
-    virtual uint8_t getBacklightBrightness() { return 100; }
-    virtual bool hasBacklightControl() { return false; }
-    
+
+    // Default: Buffered for e‑ink
+    virtual RenderMode renderMode() const { return RenderMode::Buffered; }
+
     // LVGL flush interface (hot path - called frequently)
-    virtual void startWrite() = 0;
-    virtual void endWrite() = 0;
-    virtual void setAddrWindow(int16_t x, int16_t y, uint16_t w, uint16_t h) = 0;
-    virtual void pushColors(uint16_t* data, uint32_t len, bool swap_bytes = true) = 0;
+    virtual void flushArea(const lv_area_t* area, lv_color_t* color_p) = 0;
 
-    // Default: Direct
-    virtual RenderMode renderMode() const { return RenderMode::Direct; }
-
-    // Buffered drivers override this to push the accumulated framebuffer/canvas to the panel.
+    // Buffered drivers override this to push the accumulated framebuffer to the panel.
     virtual void present() {}
+
+    // Optional full-refresh present (fallbacks to present()).
+    virtual void present(bool fullRefresh) { (void)fullRefresh; present(); }
     
     // LVGL configuration hook (override for driver-specific behavior)
     // Called during LVGL initialization to allow driver-specific settings
     // such as software rotation, full refresh mode, etc.
     // Default implementation: no special configuration (hardware handles rotation)
-    virtual void configureLVGL(lv_disp_drv_t* drv, uint8_t rotation) {
-        // Override if driver needs software rotation or other LVGL tweaks
-    }
+    virtual void configureLVGL(lv_disp_drv_t* drv) {}
+
+    // Minimum time between present() calls (e‑ink panels are slow).
+    virtual uint32_t minPresentIntervalMs() const { return 0; }
 };
 ```
 
@@ -156,40 +147,14 @@ Arduino only compiles `.cpp` files in the sketch root directory. Driver implemen
 The `configureLVGL()` method allows drivers to customize LVGL behavior without modifying DisplayManager code:
 
 **Use Cases:**
-- **Software rotation** - When panel hardware doesn't support rotation via registers (e.g., ST7789V2)
-- **Full refresh mode** - For e-paper displays that need full-screen updates
-- **Direct mode** - For high-FPS applications bypassing buffering
+- **Full refresh mode** - For e‑paper displays that need full-screen updates
 - **Custom DPI** - For panels with non-standard pixel density
 
-**Example: ST7789V2 Software Rotation**
+**Example: IT8951 Full Refresh**
 ```cpp
-void ST7789V2_Driver::configureLVGL(lv_disp_drv_t* drv, uint8_t rotation) {
-    // ST7789V2 panel stays in portrait mode (240x280)
-    // LVGL handles rotation via software rendering (more efficient than register updates)
-    switch (rotation) {
-        case 1:  // 90° (landscape)
-            drv->sw_rotate = 1;
-            drv->rotated = LV_DISP_ROT_90;
-            break;
-        case 2:  // 180° (portrait inverted)
-            drv->sw_rotate = 1;
-            drv->rotated = LV_DISP_ROT_180;
-            break;
-        case 3:  // 270° (landscape inverted)
-            drv->sw_rotate = 1;
-            drv->rotated = LV_DISP_ROT_270;
-            break;
-        default:  // 0° (portrait) - no rotation
-            break;
-    }
+void IT8951_LVGL_Driver::configureLVGL(lv_disp_drv_t* drv) {
+    drv->full_refresh = 1;
 }
-```
-
-**Example: TFT_eSPI Hardware Rotation (Default)**
-```cpp
-// TFT_eSPI_Driver doesn't override configureLVGL()
-// Uses default implementation (no special configuration)
-// Hardware rotation via setRotation() is sufficient
 ```
 
 **DisplayManager Integration:**
@@ -201,7 +166,7 @@ void DisplayManager::initLVGL() {
     disp_drv.flush_cb = DisplayManager::flushCallback;
     
     // Call driver's LVGL configuration hook
-    driver->configureLVGL(&disp_drv, DISPLAY_ROTATION);
+    driver->configureLVGL(&disp_drv);
     
     lv_disp_drv_register(&disp_drv);
 }
@@ -215,91 +180,15 @@ void DisplayManager::initLVGL() {
 
 ### Performance Impact
 
-**Measured overhead:** +640 bytes flash (0.046%), negligible runtime cost
-
-The hot path (`pushColors`) is called 24 times per full screen refresh:
-- Virtual call overhead: ~0.01 µs
-- SPI transfer time: 640-1280 µs (at 40-80 MHz)
-- **Total overhead: 0.01%** (completely negligible)
-
-### Backlight Brightness Control
-
-The HAL supports optional PWM-based brightness control via the `HAS_BACKLIGHT` feature flag:
-
-**Enable in board_config.h or board_overrides.h:**
-```cpp
-#define HAS_BACKLIGHT true
-#define TFT_BL 27                    // Backlight GPIO pin
-#define TFT_BACKLIGHT_ON HIGH        // Active-high or active-low
-```
-
-**Implementation Details:**
-- Uses ESP32 LEDC peripheral (PWM at 5kHz, 8-bit resolution)
-- Brightness range: 0-100% (user-friendly percentage)
-- Automatically handles active-high/low polarity via `TFT_BACKLIGHT_ON`
-- Supports both Arduino Core 2.x and 3.x LEDC APIs
-- Stored in NVS configuration (persists across reboots)
-- Exposed via REST API (`PUT /api/display/brightness`, `GET/POST /api/config`)
-- Web UI slider for live adjustment
-
-**Driver Methods:**
-```cpp
-virtual void setBacklightBrightness(uint8_t brightness_percent);  // 0-100%
-virtual uint8_t getBacklightBrightness();                         // Current value
-virtual bool hasBacklightControl();                               // Feature detection
-```
-
-**Manager API:**
-```cpp
-void display_manager_set_backlight_brightness(uint8_t brightness_percent);
-```
-
-### Screen Saver (Burn-In Prevention v1)
-
-When `HAS_DISPLAY` is enabled, the firmware includes a screen saver manager that reduces burn-in risk by turning the backlight off after a period of inactivity.
-
-**Behavior:**
-- After `screen_saver_timeout_seconds` of inactivity, the backlight fades to 0.
-- Wake fades back to the configured `backlight_brightness`.
-- On touch devices, wake can optionally be triggered by touch (`screen_saver_wake_on_touch`).
-- While dimming/asleep/fading in, touch input is suppressed so “wake gestures” can’t click through into LVGL UI navigation.
-
-**Configuration / APIs:**
-- Config fields are exposed via `GET/POST /api/config` (only when `HAS_DISPLAY`).
-- Runtime control endpoints:
-    - `GET /api/display/sleep` (status)
-    - `POST /api/display/sleep` (sleep now)
-    - `POST /api/display/wake` (wake now)
-    - `POST /api/display/activity` (reset timer; optional `?wake=1`)
-
-**Example Implementation (TFT_eSPI_Driver):**
-```cpp
-void TFT_eSPI_Driver::setBacklightBrightness(uint8_t brightness_percent) {
-    #if HAS_BACKLIGHT
-    uint8_t duty = map(brightness_percent, 0, 100, 0, 255);
-    if (!TFT_BACKLIGHT_ON) duty = 255 - duty;  // Invert for active-low
-    #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcWrite(TFT_BL, duty);
-    #else
-    ledcWrite(BACKLIGHT_CHANNEL, duty);
-    #endif
-    #endif
-}
-```
+E‑ink rendering is dominated by panel refresh time, not CPU. LVGL flushes are buffered, then a single present() pushes the full frame to the panel.
 
 ### Selecting a Driver
 
 In `board_config.h` or `board_overrides.h`:
 
 ```cpp
-// Available drivers
-#define DISPLAY_DRIVER_TFT_ESPI 1
-#define DISPLAY_DRIVER_ST7789V2 2
-#define DISPLAY_DRIVER_LOVYANGFX 3
-#define DISPLAY_DRIVER_ARDUINO_GFX 4
-
-// Select driver (defaults to TFT_eSPI)
-#define DISPLAY_DRIVER DISPLAY_DRIVER_TFT_ESPI
+#define DISPLAY_DRIVER_IT8951 1
+#define DISPLAY_DRIVER DISPLAY_DRIVER_IT8951
 ```
 
 ## Screen Management
@@ -344,32 +233,27 @@ public:
 ### Included Screens
 
 **SplashScreen** (`splash_screen.h/cpp`)
-- Boot screen with animated spinner
+- Simple boot screen (static title + status text)
 - Status text updates during initialization
-- Optimized layout for 240x240 round displays
-
-**InfoScreen** (`info_screen.h/cpp`)
-- Device information and real-time stats
-- Round display compatible (all text centered)
-- Shows: device name, uptime, memory, WiFi, IP, version, chip info
-- Device name as hero element with separator lines
-
-**TestScreen** (`test_screen.h/cpp`)
-- Display calibration and color testing
-- RGB and CMY color bars
-- Centered grayscale gradient (black to white)
-- Resolution info display
-
-**DirectImageScreen** (`direct_image_screen.h/cpp`)
-- Blank black LVGL screen for direct LCD hardware writes
-- Used by Image API for JPEG image display
-- Automatic timeout returns to previous screen
-- No LVGL widgets (allows strip decoder to write directly to display)
-- Configured via `display_manager_show_direct_image(timeout_ms)`
+- No animations (e‑ink friendly)
 
 ## Rendering System
 
-### FreeRTOS Task-Based Architecture
+### Deterministic Rendering (Default)
+
+The display is updated only when explicitly requested:
+
+```cpp
+display_manager_set_splash_status("Booting...");
+display_manager_render_now();      // partial update
+
+display_manager_render_full_now(); // full refresh (use sparingly)
+```
+
+This keeps LVGL fully deterministic and avoids background redraws that could interfere
+with direct image rendering.
+
+### Optional FreeRTOS Task-Based Architecture
 
 DisplayManager creates a dedicated task for LVGL rendering:
 
@@ -382,7 +266,7 @@ void DisplayManager::lvglTask(void* pvParameter) {
             mgr->currentScreen->update();   // Screen data refresh
         }
 
-        // Buffered display drivers (e.g., Arduino_GFX canvas) require a post-render present().
+        // Buffered display drivers require a post-render present().
         if (mgr->flushPending && mgr->driver->renderMode() == DisplayDriver::RenderMode::Buffered) {
             mgr->driver->present();
         }
@@ -419,7 +303,7 @@ displayManager->unlock();
 
 **Deferred Screen Switching:**
 
-DisplayManager uses a deferred pattern for screen navigation (`showSplash()`, `showInfo()`, `showTest()`, etc.):
+DisplayManager uses a deferred pattern for screen navigation (`showSplash()`, etc.):
 
 1. Navigation methods set `pendingScreen` flag (no mutex, returns instantly)
 2. LVGL rendering task checks flag and performs switch on next frame
@@ -970,52 +854,33 @@ Both display and touch are optional - boards can have:
 #define HAS_TOUCH false
 ```
 
-### Round Display Support
+### E‑ink Layout Guidance
 
-All included screens are designed for **240x240 minimum round displays**:
+E‑ink updates are slow, so screens should be static and text‑heavy:
 
-- All text uses `LV_ALIGN_CENTER` for horizontal/vertical centering
-- Widgets positioned with Y offsets from center
-- Important content kept within ±90px of center
-- Full-width elements (gradients, bars) work on rectangular displays too
-
-**Layout Guidelines:**
-- Use centered alignment: `lv_obj_align(obj, LV_ALIGN_CENTER, 0, y_offset)`
-- Keep critical content within ±90px from center (Y=0)
-- Test on both 240x240 round and 320x240 rectangular displays
+- Prefer large, centered labels
+- Avoid animations and rapid updates
+- Update status text only when state changes
 
 ### Build System Integration
 
-The build system automatically detects board-specific display configurations:
+The build system targets the IT8951 board configuration:
 
 ```bash
-./build.sh cyd-v2  # Builds with CYD display config
-./build.sh esp32-nodisplay       # Builds without display (HAS_DISPLAY=false)
+./build.sh esp32s2-photoframe-it8951
 ```
-
-Each board compiles with its own display driver and settings.
 
 ## Performance Considerations
 
 ### Memory Usage
 
-- **DisplayDriver HAL:** +64 bytes RAM (vtable), +640 bytes flash
-- **LVGL buffers:** `DISPLAY_WIDTH * 10 * 2` bytes (e.g., 6.4 KB for 320x240)
-- **Per screen:** ~200-500 bytes (depends on widget count)
-- **Total:** ~50-60 KB for display subsystem
+- **LVGL draw buffer:** `DISPLAY_WIDTH * 10 * 2` bytes
+- **G4 framebuffer:** `DISPLAY_WIDTH * DISPLAY_HEIGHT / 2` bytes (e.g., ~1.3 MB for 1872×1404)
 
 ### Rendering Performance
 
-**Typical metrics (320x240 @ 40 MHz SPI):**
-- Full screen refresh: ~30-40ms (24 buffer flushes)
-- LVGL task overhead: ~1-2% CPU (5ms interval)
-- Virtual call overhead: <0.01% (negligible)
-
-**Optimization tips:**
-- Use larger LVGL buffers if RAM allows (reduces flushes)
-- Increase SPI speed to 80 MHz if display supports it
-- Minimize widget updates in `update()` method
-- Use LVGL's dirty rectangle optimization (automatic)
+- E‑ink refresh dominates; throttle `present()` calls
+- Avoid frequent LVGL redraws (no animations)
 
 ### LVGL Configuration
 
@@ -1049,13 +914,11 @@ src/app/
 
 ## Best Practices
 
-1. **Always use the HAL interface** - Don't access TFT_eSPI directly
-2. **Keep screens stateless** - Reload data in `update()`, don't cache
-3. **Test on round displays** - Verify 240x240 compatibility
-4. **Use LVGL themes** - Leverage default theme for consistent styling
-5. **Protect LVGL calls** - Use `lock()`/`unlock()` from outside rendering task
-6. **Optimize update()** - Only update changed values, avoid full redraws
-7. **Follow naming conventions** - snake_case for files, PascalCase for classes
+1. **Always use the HAL interface** - Don't write to IT8951 directly from UI code
+2. **Keep screens static** - Update only on state changes
+3. **Avoid animations** - E‑ink refresh is slow
+4. **Protect LVGL calls** - Use `lock()`/`unlock()` from outside rendering task
+5. **Minimize redraws** - Update only changed labels
 
 ## Touch Support
 

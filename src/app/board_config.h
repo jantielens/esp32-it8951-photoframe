@@ -174,21 +174,30 @@
 #define HAS_DISPLAY false
 #endif
 
-// Display driver selection
-// Available drivers:
-//   DISPLAY_DRIVER_TFT_ESPI (1) - Bodmer's TFT_eSPI (supports ILI9341, ST7789, etc.)
-//   DISPLAY_DRIVER_ST7789V2 (2) - Native ST7789V2 driver (1.69" IPS LCD 240x280)
-//   DISPLAY_DRIVER_LOVYANGFX (3) - LovyanGFX (future support)
-//   DISPLAY_DRIVER_ARDUINO_GFX (4) - Arduino_GFX (QSPI displays like AXS15231B)
-#define DISPLAY_DRIVER_TFT_ESPI 1
-#define DISPLAY_DRIVER_ST7789V2 2
-#define DISPLAY_DRIVER_LOVYANGFX 3
-#define DISPLAY_DRIVER_ARDUINO_GFX 4
-#define DISPLAY_DRIVER_ESP_PANEL 5
+// Display driver selection (e-ink).
+#define DISPLAY_DRIVER_IT8951 1
 
-// Select the display HAL backend (one of the DISPLAY_DRIVER_* constants).
+// Select the display HAL backend.
 #ifndef DISPLAY_DRIVER
-#define DISPLAY_DRIVER DISPLAY_DRIVER_TFT_ESPI  // Default to TFT_eSPI
+#define DISPLAY_DRIVER DISPLAY_DRIVER_IT8951
+#endif
+
+// Display dimensions (required when HAS_DISPLAY is true).
+#if HAS_DISPLAY
+	#ifndef DISPLAY_WIDTH
+		#error DISPLAY_WIDTH must be defined when HAS_DISPLAY is true
+	#endif
+	#ifndef DISPLAY_HEIGHT
+		#error DISPLAY_HEIGHT must be defined when HAS_DISPLAY is true
+	#endif
+	#ifndef DISPLAY_ROTATION
+		#define DISPLAY_ROTATION 0
+	#endif
+#endif
+
+// Minimum interval between e-ink refreshes.
+#ifndef EINK_MIN_PRESENT_INTERVAL_MS
+#define EINK_MIN_PRESENT_INTERVAL_MS 1000
 #endif
 
 // ============================================================================
@@ -196,7 +205,11 @@
 // ============================================================================
 // LVGL draw buffer size in pixels (larger = faster, more RAM).
 #ifndef LVGL_BUFFER_SIZE
-#define LVGL_BUFFER_SIZE (DISPLAY_WIDTH * 10)  // 10 lines buffer
+	#if HAS_DISPLAY
+		#define LVGL_BUFFER_SIZE (DISPLAY_WIDTH * 10)  // 10 lines buffer
+	#else
+		#define LVGL_BUFFER_SIZE 0
+	#endif
 #endif
 
 // LVGL tick period in milliseconds.

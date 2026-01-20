@@ -11,7 +11,7 @@
 // Phase-1 Scope (minimal firmware)
 // ---------------------------------------------------------------------------
 // Disable template subsystems for Phase-1 simplicity.
-#define HAS_DISPLAY false
+#define HAS_DISPLAY true
 #define HAS_TOUCH false
 #define HAS_MQTT false
 #define HAS_IMAGE_API false
@@ -44,6 +44,16 @@
 #define IT8951_BUSY_PIN 4
 // IT8951 VCOM setting from the sample wiring.
 #define IT8951_VCOM 1553
+
+// ---------------------------------------------------------------------------
+// Display (LVGL) - IT8951 panel
+// ---------------------------------------------------------------------------
+// Display framebuffer width in pixels.
+#define DISPLAY_WIDTH 1872
+// Display framebuffer height in pixels.
+#define DISPLAY_HEIGHT 1404
+// Display rotation (0=portrait, 2=180°).
+#define DISPLAY_ROTATION 2
 
 // ---------------------------------------------------------------------------
 // Button (wakeup + long press)

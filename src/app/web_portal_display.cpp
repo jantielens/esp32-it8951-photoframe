@@ -1,6 +1,6 @@
 #include "web_portal_display.h"
 
-#if HAS_DISPLAY
+#if HAS_DISPLAY && HAS_BACKLIGHT
 
 #include "web_portal_auth.h"
 #include "web_portal_state.h"
@@ -156,4 +156,4 @@ void handleSetDisplayScreen(AsyncWebServerRequest *request, uint8_t *data, size_
     }
 }
 
-#endif // HAS_DISPLAY
+#endif // HAS_DISPLAY && HAS_BACKLIGHT

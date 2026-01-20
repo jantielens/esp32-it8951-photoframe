@@ -6,13 +6,6 @@
 #include "display_driver.h"
 #include "screens/screen.h"
 #include "screens/splash_screen.h"
-#include "screens/info_screen.h"
-#include "screens/test_screen.h"
-
-#if HAS_IMAGE_API
-#include "screens/direct_image_screen.h"
-#include "screens/lvgl_image_screen.h"
-#endif
 
 #include <lvgl.h>
 #include <freertos/FreeRTOS.h>
@@ -22,15 +15,12 @@
 // ============================================================================
 // Screen Registry
 // ============================================================================
-// Maximum number of screens that can be registered for runtime navigation
-// Generous headroom (8 slots) allows adding new screens without recompiling
-// Only ~192 bytes total (24 bytes × 8), negligible overhead vs heap allocation
-#define MAX_SCREENS 8
+#define MAX_SCREENS 4
 
 // Struct for registering available screens dynamically
 struct ScreenInfo {
-    const char* id;            // Unique identifier (e.g., "info", "test")
-    const char* display_name;  // Human-readable name (e.g., "Info Screen")
+    const char* id;            // Unique identifier (e.g., "splash")
+    const char* display_name;  // Human-readable name
     Screen* instance;          // Pointer to screen instance
 };
 
@@ -41,9 +31,9 @@ struct ScreenInfo {
 // Uses FreeRTOS task for continuous LVGL rendering (works on single and dual core).
 //
 // Usage:
-//   display_manager_init(&device_config);  // In setup() - starts rendering task
-//   display_manager_show_main();           // When WiFi connected
-//   display_manager_set_splash_status();   // Update splash text
+//   display_manager_init(&device_config);   // In setup() - starts rendering task
+//   display_manager_show_splash();          // Show splash screen
+//   display_manager_set_splash_status();    // Update splash text
 //
 // Note: No need to call update() in loop() - rendering task handles it
 
@@ -54,6 +44,7 @@ private:
     lv_disp_draw_buf_t draw_buf;
     lv_color_t* buf;  // Dynamically allocated LVGL buffer
     lv_disp_drv_t disp_drv;
+    lv_disp_t* lvglDisp;
     
     // Configuration reference
     DeviceConfig* config;
@@ -61,11 +52,14 @@ private:
     // FreeRTOS task and mutex
     TaskHandle_t lvglTaskHandle;
     SemaphoreHandle_t lvglMutex;
+    volatile bool lvglTaskStopRequested;
     
     // Screen management
     Screen* currentScreen;
-    Screen* previousScreen;  // Track previous screen for return navigation
     Screen* pendingScreen;   // Deferred screen switch (processed in lvglTask)
+
+    // UI session state (LVGL task running)
+    bool uiActive;
 
     // Defer small LVGL UI updates (like splash status) to the LVGL task.
     char pendingSplashStatus[96];
@@ -78,19 +72,8 @@ private:
     
     // Screen instances (created at init, kept in memory)
     SplashScreen splashScreen;
-    InfoScreen infoScreen;
-    TestScreen testScreen;
-    
-    #if HAS_IMAGE_API
-    DirectImageScreen directImageScreen;
-    #if LV_USE_IMG
-    LvglImageScreen lvglImageScreen;
-    #endif
-    #endif
     
     // Screen registry for runtime navigation (static allocation, no heap)
-    // screenCount tracks how many slots are actually used (currently 2: info, test)
-    // Splash excluded from runtime selection (boot-specific only)
     ScreenInfo availableScreens[MAX_SCREENS];
     size_t screenCount;
 
@@ -106,14 +89,15 @@ private:
     // LVGL flush callback (static, accesses instance via user_data)
     static void flushCallback(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p);
 
-    // Buffered render-mode drivers (e.g., Arduino_GFX canvas) need an explicit
-    // present() step, but only after LVGL has actually rendered something.
+    // Buffered render-mode drivers need an explicit present() step,
+    // but only after LVGL has actually rendered something.
     bool flushPending;
 
-    // When true, LVGL flushes must not touch the panel.
-    // This is enabled as soon as DirectImageScreen is requested so that
-    // the JPEG decoder can safely write to the display without SPI contention.
-    volatile bool directImageActive;
+    // Force a full refresh on the next present() (clears ghosting).
+    bool forceFullRefreshNext;
+
+    // Last present timestamp for throttling (e-ink panels).
+    uint32_t lastPresentMs;
     
     // FreeRTOS task for LVGL rendering
     static void lvglTask(void* pvParameter);
@@ -127,13 +111,20 @@ public:
     
     // Navigation API (thread-safe)
     void showSplash();
-    void showInfo();
-    void showTest();
-    
-    #if HAS_IMAGE_API
-    void showDirectImage();
-    void returnToPreviousScreen();  // Return to screen before image was shown
-    #endif
+
+    // Deterministic render: refresh LVGL and present immediately (blocking)
+    void renderNow();
+
+    // Deterministic full refresh: redraw full screen and present with full waveform.
+    void renderFullNow();
+
+    // Request a full refresh on the next render/present.
+    void forceFullRefresh();
+
+    // UI session control
+    bool startUi();
+    void stopUi();
+    bool isUiActive() const { return uiActive; }
     
     // Screen selection by ID (thread-safe, returns true if found)
     bool showScreen(const char* screen_id);
@@ -163,16 +154,6 @@ public:
     // Access to splash screen for status updates
     SplashScreen* getSplash() { return &splashScreen; }
     
-    #if HAS_IMAGE_API
-    // Access to direct image screen for image API
-    DirectImageScreen* getDirectImageScreen() { return &directImageScreen; }
-
-    // Access to LVGL image screen (shows images via lv_img)
-    #if LV_USE_IMG
-    LvglImageScreen* getLvglImageScreen() { return &lvglImageScreen; }
-    #endif
-    #endif
-    
     // Access to display driver (for touch integration)
     DisplayDriver* getDriver() { return driver; }
 };
@@ -190,16 +171,18 @@ extern DisplayManager* displayManager;
 // C-style interface for app.ino
 void display_manager_init(DeviceConfig* config);
 void display_manager_show_splash();
-void display_manager_show_info();
-void display_manager_show_test();
+void display_manager_render_now();
+void display_manager_force_full_refresh();
+void display_manager_render_full_now();
+bool display_manager_ui_start();
+void display_manager_ui_stop();
+bool display_manager_ui_is_active();
 void display_manager_show_screen(const char* screen_id, bool* success);  // success is optional output
 const char* display_manager_get_current_screen_id();
 const ScreenInfo* display_manager_get_available_screens(size_t* count);
 void display_manager_set_splash_status(const char* text);
-void display_manager_set_backlight_brightness(uint8_t brightness);  // 0-100%
 
 // Serialization helpers for code running outside the LVGL task.
-// Use these to avoid concurrent access to buffered display backends (e.g., Arduino_GFX canvas).
 void display_manager_lock();
 void display_manager_unlock();
 bool display_manager_try_lock(uint32_t timeout_ms);
@@ -207,15 +190,5 @@ bool display_manager_try_lock(uint32_t timeout_ms);
 // Best-effort perf stats for diagnostics (/api/health).
 // Returns false until a first stats window has been captured.
 bool display_manager_get_perf_stats(DisplayPerfStats* out);
-
-#if HAS_IMAGE_API
-// C-style interface for image API
-void display_manager_show_direct_image();
-DirectImageScreen* display_manager_get_direct_image_screen();
-#if LV_USE_IMG
-LvglImageScreen* display_manager_get_lvgl_image_screen();
-#endif
-void display_manager_return_to_previous_screen();
-#endif
 
 #endif // DISPLAY_MANAGER_H
