@@ -13,9 +13,6 @@ DisplayManager* displayManager = nullptr;
 DisplayManager::DisplayManager(DeviceConfig* cfg)
     : driver(nullptr), config(cfg), uiActive(false), forceFullRefreshNext(false),
       lastPresentMs(0), splashPartialCount(0), currentScreenId(nullptr), screenCount(0)
-#if HAS_IMAGE_API
-    , directImage(this)
-#endif
 {
     #if DISPLAY_DRIVER == DISPLAY_DRIVER_IT8951
     driver = new IT8951_Display_Driver();
@@ -26,9 +23,6 @@ DisplayManager::DisplayManager(DeviceConfig* cfg)
     availableScreens[0] = {"splash", "Splash"};
     screenCount = 1;
 
-    #if HAS_IMAGE_API
-    availableScreens[screenCount++] = {"direct_image", "Direct Image"};
-    #endif
 }
 
 DisplayManager::~DisplayManager() {
@@ -108,11 +102,6 @@ void DisplayManager::forceFullRefresh() {
     forceFullRefreshNext = true;
 }
 
-bool DisplayManager::startUi() {
-    uiActive = true;
-    return true;
-}
-
 void DisplayManager::stopUi() {
     uiActive = false;
 }
@@ -123,12 +112,6 @@ bool DisplayManager::showScreen(const char* screen_id) {
         showSplash();
         return true;
     }
-#if HAS_IMAGE_API
-    if (strcmp(screen_id, "direct_image") == 0) {
-        showDirectImage();
-        return true;
-    }
-#endif
     return false;
 }
 
@@ -146,29 +129,13 @@ void DisplayManager::setSplashStatus(const char* text) {
 }
 
 void DisplayManager::tick() {
-#if HAS_IMAGE_API
-    directImage.update();
-#endif
 }
-
-#if HAS_IMAGE_API
-void DisplayManager::showDirectImage() {
-    currentScreenId = "direct_image";
-    directImage.show();
-}
-#endif
 
 // C-style interface
 void display_manager_init(DeviceConfig* config) {
     if (!displayManager) {
         displayManager = new DisplayManager(config);
         displayManager->init();
-    }
-}
-
-void display_manager_show_splash() {
-    if (displayManager) {
-        displayManager->showSplash();
     }
 }
 
@@ -194,11 +161,6 @@ void display_manager_force_full_refresh() {
     if (displayManager) {
         displayManager->forceFullRefresh();
     }
-}
-
-bool display_manager_ui_start() {
-    if (!displayManager) return false;
-    return displayManager->startUi();
 }
 
 void display_manager_ui_stop() {
@@ -247,26 +209,9 @@ void display_manager_tick() {
     }
 }
 
-void display_manager_lock() {}
-void display_manager_unlock() {}
-bool display_manager_try_lock(uint32_t timeout_ms) { (void)timeout_ms; return true; }
-
 bool display_manager_get_perf_stats(DisplayPerfStats* out) {
     (void)out;
     return false;
 }
-
-#if HAS_IMAGE_API
-DirectImageScreen* display_manager_get_direct_image_screen() {
-    if (!displayManager) return nullptr;
-    return displayManager->getDirectImageScreen();
-}
-
-void display_manager_show_direct_image() {
-    if (displayManager) {
-        displayManager->showDirectImage();
-    }
-}
-#endif
 
 #endif // HAS_DISPLAY

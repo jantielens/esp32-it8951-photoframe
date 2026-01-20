@@ -6,9 +6,6 @@
 #include "display_driver.h"
 #include "eink_ui.h"
 
-#if HAS_IMAGE_API
-#include "screens/direct_image_screen.h"
-#endif
 
 // ============================================================================
 // Screen Registry (logical UI modes)
@@ -36,7 +33,6 @@ public:
     void renderNow(bool fullRefresh);
     void renderFullNow();
     void forceFullRefresh();
-    bool startUi();
     void stopUi();
     bool isUiActive() const { return uiActive; }
 
@@ -48,11 +44,6 @@ public:
     void tick();
 
     DisplayDriver* getDriver() { return driver; }
-
-#if HAS_IMAGE_API
-    DirectImageScreen* getDirectImageScreen() { return &directImage; }
-    void showDirectImage();
-#endif
 
 private:
     void initHardware();
@@ -70,9 +61,6 @@ private:
     ScreenInfo availableScreens[2];
     size_t screenCount;
 
-#if HAS_IMAGE_API
-    DirectImageScreen directImage;
-#endif
 };
 
 // Global instance (managed by app.ino)
@@ -80,12 +68,10 @@ extern DisplayManager* displayManager;
 
 // C-style interface
 void display_manager_init(DeviceConfig* config);
-void display_manager_show_splash();
 void display_manager_render_now();
 void display_manager_render_now_ex(bool full_refresh);
 void display_manager_force_full_refresh();
 void display_manager_render_full_now();
-bool display_manager_ui_start();
 void display_manager_ui_stop();
 bool display_manager_ui_is_active();
 void display_manager_show_screen(const char* screen_id, bool* success);
@@ -94,17 +80,7 @@ const ScreenInfo* display_manager_get_available_screens(size_t* count);
 void display_manager_set_splash_status(const char* text);
 void display_manager_tick();
 
-// Serialization helpers (no-op for the simplified UI)
-void display_manager_lock();
-void display_manager_unlock();
-bool display_manager_try_lock(uint32_t timeout_ms);
-
 // Best-effort perf stats for diagnostics (/api/health).
 bool display_manager_get_perf_stats(DisplayPerfStats* out);
-
-#if HAS_IMAGE_API
-DirectImageScreen* display_manager_get_direct_image_screen();
-void display_manager_show_direct_image();
-#endif
 
 #endif // DISPLAY_MANAGER_H

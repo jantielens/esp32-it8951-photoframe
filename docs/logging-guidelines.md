@@ -28,7 +28,7 @@ Initialize once:
 
 ## Module Tags
 Recommended tags:
-- `SYS`, `WIFI`, `MQTT`, `PORTAL`, `API`, `DISPLAY`, `TOUCH`, `MEM`, `OTA`, `IMG`, `SAVER`, `TELEM`
+- `SYS`, `WIFI`, `MQTT`, `PORTAL`, `API`, `DISPLAY`, `MEM`, `OTA`, `IMG`, `SAVER`, `TELEM`
 Additional tags used:
 - `DIRIMG`, `STRIP`, `STRIPDEC`, `GFX`
 

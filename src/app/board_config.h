@@ -94,27 +94,9 @@
 // #ifndef BUTTON_PIN
 // #define BUTTON_PIN 0
 // #endif
-
-// Button support (wakeup + long press).
-#ifndef BUTTON_PIN
-#define BUTTON_PIN -1
-#endif
-//
-// Battery Monitor:
-// #ifndef HAS_BATTERY_MONITOR
-// #define HAS_BATTERY_MONITOR false
-// #endif
-//
-// #ifndef BATTERY_ADC_PIN
-// #define BATTERY_ADC_PIN 34
-// #endif
-//
 // Display:
 // #ifndef HAS_DISPLAY
 // #define HAS_DISPLAY false
-// #endif
-
-// ============================================================================
 // Web Portal Health Widget
 // ============================================================================
 // How often the web UI polls /api/health.
@@ -213,24 +195,6 @@
 #define TFT_BACKLIGHT_PWM_CHANNEL 0  // LEDC channel for PWM control
 #endif
 
-// ============================================================================
-// Touch Configuration
-// ============================================================================
-// Enable touch input support.
-#ifndef HAS_TOUCH
-#define HAS_TOUCH false
-#endif
-
-// Touch driver selection
-// Available drivers:
-//   TOUCH_DRIVER_XPT2046 (1) - XPT2046 resistive touch (via TFT_eSPI)
-//   TOUCH_DRIVER_FT6236 (2) - FT6236 capacitive touch (future support)
-//   TOUCH_DRIVER_AXS15231B (3) - AXS15231B capacitive touch (I2C, JC3248W535)
-#define TOUCH_DRIVER_XPT2046 1
-#define TOUCH_DRIVER_FT6236 2
-#define TOUCH_DRIVER_AXS15231B 3
-#define TOUCH_DRIVER_CST816S_ESP_PANEL 4
-
 // ESP_Panel (QSPI) display driver: prefer internal RAM for the byte-swap buffer.
 // Default: true. Some panel buses are more reliable with internal/DMA-capable buffers.
 #ifndef ESP_PANEL_SWAPBUF_PREFER_INTERNAL
@@ -263,59 +227,6 @@
 // Timeout for an incomplete /api/config upload (ms) before freeing the buffer.
 #ifndef WEB_PORTAL_CONFIG_BODY_TIMEOUT_MS
 #define WEB_PORTAL_CONFIG_BODY_TIMEOUT_MS 5000
-#endif
-
-// Select the touch HAL backend (one of the TOUCH_DRIVER_* constants).
-#ifndef TOUCH_DRIVER
-#define TOUCH_DRIVER TOUCH_DRIVER_XPT2046  // Default to XPT2046
-#endif
-
-// ============================================================================
-// Image API Configuration
-// ============================================================================
-// Enable web-based image upload and display functionality
-// Requires: HAS_DISPLAY = true
-//
-// Template note (bloat control):
-// - Image API supports direct strip-based rendering and does not depend on LVGL.
-// Adds REST endpoints:
-//   POST   /api/display/image          - Upload full JPEG (deferred decode)
-//   DELETE /api/display/image          - Dismiss current image
-//   POST   /api/display/image/strips   - Upload JPEG strip (synchronous)
-//   POST   /api/display/image_url      - Download JPEG via HTTP/HTTPS (deferred)
-// Enable Image API endpoints (JPEG upload/download/display).
-#ifndef HAS_IMAGE_API
-#define HAS_IMAGE_API false
-#endif
-
-// Image API configuration (only relevant when HAS_IMAGE_API is true)
-// Max bytes accepted for full image uploads (JPEG).
-#ifndef IMAGE_API_MAX_SIZE_BYTES
-#define IMAGE_API_MAX_SIZE_BYTES (100 * 1024)  // 100KB max for full image upload
-#endif
-
-// Extra free RAM required for decoding (bytes).
-#ifndef IMAGE_API_DECODE_HEADROOM_BYTES
-#define IMAGE_API_DECODE_HEADROOM_BYTES (50 * 1024)  // 50KB headroom for decoding
-#endif
-
-// Default image display timeout in milliseconds.
-#ifndef IMAGE_API_DEFAULT_TIMEOUT_MS
-#define IMAGE_API_DEFAULT_TIMEOUT_MS 10000  // 10 seconds default display timeout
-#endif
-
-// Maximum image display timeout in milliseconds.
-#ifndef IMAGE_API_MAX_TIMEOUT_MS
-#define IMAGE_API_MAX_TIMEOUT_MS (86400UL * 1000UL)  // 24 hours max timeout
-#endif
-
-// Image API performance tuning
-// Controls how many rows the strip decoder batches into one LCD transaction.
-// Higher = fewer LCD transactions (faster) but more temporary RAM.
-// Set to 1 to disable batching.
-// Max rows batched per LCD transaction when decoding JPEG strips.
-#ifndef IMAGE_STRIP_BATCH_MAX_ROWS
-#define IMAGE_STRIP_BATCH_MAX_ROWS 16
 #endif
 
 #endif // BOARD_CONFIG_H

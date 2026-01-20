@@ -1,6 +1,6 @@
-# Drivers (Display + Touch)
+# Drivers (Display)
 
-This project targets a single e‑ink display backend. The display driver exposes a small, LVGL-free HAL and lives alongside optional touch drivers.
+This project targets a single e‑ink display backend. The display driver exposes a small, LVGL-free HAL.
 
 ## Display driver
 
@@ -13,5 +13,4 @@ The selected display driver is compiled via:
 
 ## Touch drivers
 
-Touch drivers are optional and compiled via:
-- `src/app/touch_drivers.cpp`
+Touch drivers have been removed for this project.

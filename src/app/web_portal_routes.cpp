@@ -101,17 +101,6 @@ void web_portal_register_routes(AsyncWebServer* server) {
     );
     registerOptions("/api/display/brightness");
 
-    // Screen saver API endpoints
-    registerOptions("/api/display/sleep");
-    server->on("/api/display/sleep", HTTP_GET, handleGetDisplaySleep);
-    server->on("/api/display/sleep", HTTP_POST, handlePostDisplaySleep);
-
-    registerOptions("/api/display/wake");
-    server->on("/api/display/wake", HTTP_POST, handlePostDisplayWake);
-
-    registerOptions("/api/display/activity");
-    server->on("/api/display/activity", HTTP_POST, handlePostDisplayActivity);
-
     // Runtime-only screen switch
     server->on(
         "/api/display/screen",

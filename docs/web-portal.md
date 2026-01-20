@@ -527,18 +527,12 @@ Returns current device configuration (passwords excluded).
   "basic_auth_password_set": false,
 
   "backlight_brightness": 100,
-
-  "screen_saver_enabled": false,
-  "screen_saver_timeout_seconds": 300,
-  "screen_saver_fade_out_ms": 800,
-  "screen_saver_fade_in_ms": 400,
-  "screen_saver_wake_on_touch": true
 }
 ```
 
 **Notes:**
 - Some fields are build-time gated.
-  - Display-related fields (backlight + screen saver) are present when `HAS_DISPLAY` is enabled.
+  - Display-related fields (backlight) are present when `HAS_DISPLAY` is enabled.
   - Other feature-specific fields may be present depending on firmware configuration.
 
 #### `POST /api/config`
@@ -563,12 +557,6 @@ Save new configuration. Device reboots after successful save.
   "basic_auth_password": "change-me",
 
   "backlight_brightness": 70,
-
-  "screen_saver_enabled": true,
-  "screen_saver_timeout_seconds": 300,
-  "screen_saver_fade_out_ms": 800,
-  "screen_saver_fade_in_ms": 400,
-  "screen_saver_wake_on_touch": true
 }
 ```
 
@@ -731,42 +719,6 @@ Set backlight brightness immediately (does not persist to NVS).
 { "brightness": 80 }
 ```
 
-#### `GET /api/display/sleep`
-
-Get screen saver status.
-
-**Response:**
-```json
-{
-  "enabled": true,
-  "state": 0,
-  "current_brightness": 100,
-  "target_brightness": 100,
-  "seconds_until_sleep": 42
-}
-```
-
-`state` values:
-- `0` = Awake
-- `1` = FadingOut
-- `2` = Asleep
-- `3` = FadingIn
-
-#### `POST /api/display/sleep`
-
-Force the screen saver to sleep now (fade backlight to 0).
-
-#### `POST /api/display/wake`
-
-Force wake now (fade backlight back to configured brightness).
-
-#### `POST /api/display/activity`
-
-Reset the idle timer; optionally request wake.
-
-- `POST /api/display/activity` (just resets timer)
-- `POST /api/display/activity?wake=1` (resets timer + wake)
-
 #### `PUT /api/display/screen`
 
 Switch the active runtime screen (no persistence).
@@ -777,8 +729,7 @@ Switch the active runtime screen (no persistence).
 ```
 
 **Notes:**
-- Screen-affecting actions count as user activity and will reset the screen saver timer.
-- When the screen saver is dimming/asleep/fading in, touch input is intentionally suppressed to avoid “wake gestures” clicking through into the UI. A second tap may be required after wake.
+- Screen-affecting actions switch the runtime UI only; selection is not persisted.
 
 ### Image Display (HAS_DISPLAY enabled)
 

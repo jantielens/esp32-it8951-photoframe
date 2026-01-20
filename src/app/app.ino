@@ -22,16 +22,21 @@
 #include <WiFi.h>
 #include <esp_sleep.h>
 #include <driver/rtc_io.h>
+#include <soc/soc_caps.h>
+#if SOC_TOUCH_SENSOR_SUPPORTED
+#include <driver/touch_pad.h>
+#endif
 static constexpr uint32_t kDefaultSleepSeconds = 60;
 static constexpr uint32_t kSdFrequencyHz = 80000000;
 static constexpr uint16_t kDefaultLongPressMs = 1500;
 static constexpr uint8_t kButtonActiveLevel = LOW;
 static constexpr uint32_t kButtonDebounceMs = 30;
 static constexpr uint8_t kTouchGpio = 6; // TOUCH06 -> GPIO6 on ESP32-S2
-static constexpr uint8_t kTouchSamples = 8;
-static constexpr float kTouchThresholdRatio = 1.3f;
-static constexpr uint32_t kTouchDebounceMs = 250;
 static constexpr uint32_t kNoImageRetryMs = 5000;
+
+#if SOC_TOUCH_SENSOR_SUPPORTED && defined(TOUCH_PAD_NUM6)
+static constexpr touch_pad_t kTouchPad = TOUCH_PAD_NUM6;
+#endif
 
 static SPIClass sdSpi(HSPI);
 
@@ -175,11 +180,34 @@ static void enter_deep_sleep(uint32_t sleep_seconds) {
     rtc_gpio_pulldown_dis(static_cast<gpio_num_t>(BUTTON_PIN));
     esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(BUTTON_PIN), kButtonActiveLevel);
   }
-  if (input_manager_is_touch_ready()) {
+  #if SOC_TOUCH_SENSOR_SUPPORTED && defined(TOUCH_PAD_NUM6)
+  if (kTouchGpio == 6) {
+    touch_pad_init();
+    touch_pad_config(kTouchPad, 0);
+    touch_pad_filter_start(10);
+    touch_pad_set_fsm_mode(TOUCH_FSM_MODE_TIMER);
+    touch_pad_fsm_start();
+
+    uint16_t baseline = 0;
+    for (int i = 0; i < 5; i++) {
+      uint16_t sample = 0;
+      if (touch_pad_read_filtered(kTouchPad, &sample) == ESP_OK) {
+        baseline = (uint16_t)(baseline + sample);
+      }
+      delay(20);
+    }
+    baseline = (uint16_t)(baseline / 5);
+    uint16_t threshold = (uint16_t)(baseline * 0.8f);
+    touch_pad_set_thresh(kTouchPad, threshold);
     esp_sleep_enable_touchpad_wakeup();
-    LOGI("Touch", "Deep sleep touch wake enabled (baseline=%lu threshold=%lu)",
-         (unsigned long)input_manager_get_touch_baseline(), (unsigned long)input_manager_get_touch_threshold());
+    LOGI("Sleep", "Touch wake enabled on GPIO%u (baseline=%u threshold=%u)",
+         (unsigned)kTouchGpio, (unsigned)baseline, (unsigned)threshold);
+  } else {
+    LOGW("Sleep", "Touch wake not configured: expected GPIO6, got GPIO%u", (unsigned)kTouchGpio);
   }
+  #else
+  LOGW("Sleep", "Touch wake not supported on this target");
+  #endif
   esp_deep_sleep_start();
 }
 
@@ -193,8 +221,8 @@ static bool is_fast_wake(const DeviceConfig &config, uint16_t long_press_ms) {
 
   const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   return (cause == ESP_SLEEP_WAKEUP_TIMER ||
-          cause == ESP_SLEEP_WAKEUP_EXT0 ||
-          cause == ESP_SLEEP_WAKEUP_TOUCHPAD);
+      cause == ESP_SLEEP_WAKEUP_EXT0 ||
+      cause == ESP_SLEEP_WAKEUP_TOUCHPAD);
 }
 
 static void run_config_mode(DeviceConfig &config, bool config_loaded) {
@@ -258,10 +286,6 @@ static void run_always_on(DeviceConfig &config, bool config_loaded) {
       LOGI("Input", "Button click -> refresh");
       render_scheduler_request_refresh();
     }
-    if (events.touch_trigger) {
-      LOGI("Input", "Touch trigger -> refresh");
-      render_scheduler_request_refresh();
-    }
 
     render_scheduler_tick();
 
@@ -281,15 +305,12 @@ void setup() {
   log_init(115200);
   delay(200);
   LOGI("Boot", "Boot");
+  LOGI("Boot", "Wake cause=%d", (int)esp_sleep_get_wakeup_cause());
 
   input_manager_init(
       BUTTON_PIN,
       kButtonActiveLevel,
-      kButtonDebounceMs,
-      kTouchGpio,
-      kTouchSamples,
-      kTouchThresholdRatio,
-      kTouchDebounceMs
+      kButtonDebounceMs
   );
 
   device_telemetry_init();

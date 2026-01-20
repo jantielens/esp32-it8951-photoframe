@@ -85,15 +85,6 @@ struct DeviceConfig {
     // Azure Blob pull-on-wake (optional)
     char blob_sas_url[CONFIG_BLOB_SAS_URL_MAX_LEN];
 
-#if HAS_DISPLAY
-    // Screen saver (burn-in prevention v1): backlight sleep on inactivity
-    bool screen_saver_enabled;               // default false
-    uint16_t screen_saver_timeout_seconds;   // default 300 (5 min)
-    uint16_t screen_saver_fade_out_ms;       // default 800
-    uint16_t screen_saver_fade_in_ms;        // default 400
-    bool screen_saver_wake_on_touch;         // default true (when HAS_TOUCH)
-#endif
-    
     // Validation flag (magic number to detect valid config)
     uint32_t magic;
 };

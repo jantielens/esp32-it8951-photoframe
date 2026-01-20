@@ -12,7 +12,6 @@
 
 #if HAS_DISPLAY
 #include "display_manager.h"
-#include "screen_saver_manager.h"
 #endif
 
 #include <ArduinoJson.h>
@@ -115,15 +114,6 @@ void handleGetConfig(AsyncWebServerRequest *request) {
 
         // Display settings
         (*doc)["backlight_brightness"] = current_config->backlight_brightness;
-
-        #if HAS_DISPLAY
-        // Screen saver settings
-        (*doc)["screen_saver_enabled"] = current_config->screen_saver_enabled;
-        (*doc)["screen_saver_timeout_seconds"] = current_config->screen_saver_timeout_seconds;
-        (*doc)["screen_saver_fade_out_ms"] = current_config->screen_saver_fade_out_ms;
-        (*doc)["screen_saver_fade_in_ms"] = current_config->screen_saver_fade_in_ms;
-        (*doc)["screen_saver_wake_on_touch"] = current_config->screen_saver_wake_on_touch;
-        #endif
 
         if (doc->overflowed()) {
             LOGE("Portal", "/api/config JSON overflow");
@@ -433,61 +423,8 @@ void handlePostConfig(AsyncWebServerRequest *request, uint8_t *data, size_t len,
         // Apply brightness immediately (will also be persisted when config saved)
         #if HAS_DISPLAY && HAS_BACKLIGHT
         display_manager_set_backlight_brightness(brightness);
-
-        // Edge case: if the device was in screen saver (backlight at 0), changing brightness
-        // externally would light the screen without updating the screen saver state.
-        // Treat this as explicit activity+wake so auto-sleep keeps working.
-        screen_saver_manager_notify_activity(true);
         #endif
     }
-
-    #if HAS_DISPLAY && HAS_BACKLIGHT
-    // Screen saver settings
-    if (doc.containsKey("screen_saver_enabled")) {
-        if (doc["screen_saver_enabled"].is<const char*>()) {
-            const char* v = doc["screen_saver_enabled"];
-            current_config->screen_saver_enabled = (v && (strcmp(v, "1") == 0 || strcasecmp(v, "true") == 0 || strcasecmp(v, "on") == 0));
-        } else {
-            current_config->screen_saver_enabled = (bool)(doc["screen_saver_enabled"] | false);
-        }
-    }
-
-    if (doc.containsKey("screen_saver_timeout_seconds")) {
-        if (doc["screen_saver_timeout_seconds"].is<const char*>()) {
-            const char* v = doc["screen_saver_timeout_seconds"];
-            current_config->screen_saver_timeout_seconds = (uint16_t)atoi(v ? v : "0");
-        } else {
-            current_config->screen_saver_timeout_seconds = (uint16_t)(doc["screen_saver_timeout_seconds"] | 0);
-        }
-    }
-
-    if (doc.containsKey("screen_saver_fade_out_ms")) {
-        if (doc["screen_saver_fade_out_ms"].is<const char*>()) {
-            const char* v = doc["screen_saver_fade_out_ms"];
-            current_config->screen_saver_fade_out_ms = (uint16_t)atoi(v ? v : "0");
-        } else {
-            current_config->screen_saver_fade_out_ms = (uint16_t)(doc["screen_saver_fade_out_ms"] | 0);
-        }
-    }
-
-    if (doc.containsKey("screen_saver_fade_in_ms")) {
-        if (doc["screen_saver_fade_in_ms"].is<const char*>()) {
-            const char* v = doc["screen_saver_fade_in_ms"];
-            current_config->screen_saver_fade_in_ms = (uint16_t)atoi(v ? v : "0");
-        } else {
-            current_config->screen_saver_fade_in_ms = (uint16_t)(doc["screen_saver_fade_in_ms"] | 0);
-        }
-    }
-
-    if (doc.containsKey("screen_saver_wake_on_touch")) {
-        if (doc["screen_saver_wake_on_touch"].is<const char*>()) {
-            const char* v = doc["screen_saver_wake_on_touch"];
-            current_config->screen_saver_wake_on_touch = (v && (strcmp(v, "1") == 0 || strcasecmp(v, "true") == 0 || strcasecmp(v, "on") == 0));
-        } else {
-            current_config->screen_saver_wake_on_touch = (bool)(doc["screen_saver_wake_on_touch"] | false);
-        }
-    }
-    #endif
 
     current_config->magic = CONFIG_MAGIC;
 

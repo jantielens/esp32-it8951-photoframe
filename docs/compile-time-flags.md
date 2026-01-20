@@ -21,21 +21,18 @@ This document is a template. Sections marked with `COMPILE_FLAG_REPORT` markers 
 ## Flags (generated)
 
 <!-- BEGIN COMPILE_FLAG_REPORT:FLAGS -->
-Total flags: 43
+Total flags: 35
 
 ### Features (HAS_*)
 
 - **HAS_BACKLIGHT** default: `false` — Enable backlight control (typically via PWM).
 - **HAS_BUILTIN_LED** default: `false` — Enable built-in status LED support.
 - **HAS_DISPLAY** default: `false` — Enable display support.
-- **HAS_IMAGE_API** default: `false` — Enable Image API endpoints (JPEG upload/download/display).
 - **HAS_MQTT** default: `true` — Enable MQTT and Home Assistant integration.
-- **HAS_TOUCH** default: `false` — Enable touch input support.
 
 ### Selectors (*_DRIVER)
 
 - **DISPLAY_DRIVER** default: `DISPLAY_DRIVER_IT8951` (values: DISPLAY_DRIVER_IT8951) — Select the display HAL backend.
-- **TOUCH_DRIVER** default: `TOUCH_DRIVER_XPT2046` (values: TOUCH_DRIVER_AXS15231B, TOUCH_DRIVER_CST816S_ESP_PANEL, TOUCH_DRIVER_XPT2046) — Select the touch HAL backend (one of the TOUCH_DRIVER_* constants).
 
 ### Hardware (Geometry)
 
@@ -45,7 +42,7 @@ Total flags: 43
 
 ### Hardware (Pins)
 
-- **BUTTON_PIN** default: `-1` — Button support (wakeup + long press).
+- **BUTTON_PIN** default: `(no default)` — Button (wakeup + long press)
 - **IT8951_BUSY_PIN** default: `(no default)` — IT8951 busy pin.
 - **IT8951_CS_PIN** default: `(no default)` — IT8951 chip select (CS). Use default SS pin (matches sample wiring).
 - **IT8951_DC_PIN** default: `(no default)` — IT8951 data/command pin.
@@ -61,11 +58,6 @@ Total flags: 43
 
 - **EINK_MIN_PRESENT_INTERVAL_MS** default: `1000` — Minimum interval between e-ink refreshes.
 - **HEALTH_HISTORY_PERIOD_MS** default: `5000` — Sampling cadence for the device-side history (ms). Default aligns with UI poll.
-- **IMAGE_API_DECODE_HEADROOM_BYTES** default: `(50 * 1024)` — Extra free RAM required for decoding (bytes).
-- **IMAGE_API_DEFAULT_TIMEOUT_MS** default: `10000` — Default image display timeout in milliseconds.
-- **IMAGE_API_MAX_SIZE_BYTES** default: `(100 * 1024)` — Max bytes accepted for full image uploads (JPEG).
-- **IMAGE_API_MAX_TIMEOUT_MS** default: `(86400UL * 1000UL)` — Maximum image display timeout in milliseconds.
-- **IMAGE_STRIP_BATCH_MAX_ROWS** default: `16` — Max rows batched per LCD transaction when decoding JPEG strips.
 - **MEMORY_TRIPWIRE_INTERNAL_MIN_BYTES** default: `0` — Default: disabled (0). Enable per-board if you want early warning logs.
 - **WEB_PORTAL_CONFIG_BODY_TIMEOUT_MS** default: `5000` — Timeout for an incomplete /api/config upload (ms) before freeing the buffer.
 - **WEB_PORTAL_CONFIG_MAX_JSON_BYTES** default: `4096` — Max JSON body size accepted by /api/config.
@@ -90,17 +82,17 @@ Total flags: 43
 Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 
 <!-- BEGIN COMPILE_FLAG_REPORT:MATRIX_FEATURES -->
-| board-name | HAS_BACKLIGHT | HAS_BUILTIN_LED | HAS_DISPLAY | HAS_IMAGE_API | HAS_MQTT | HAS_TOUCH |
-| --- | --- | --- | --- | --- | --- | --- |
-| esp32s2-photoframe-it8951 |  |  | ✅ |  | ✅ |  |
+| board-name | HAS_BACKLIGHT | HAS_BUILTIN_LED | HAS_DISPLAY | HAS_MQTT |
+| --- | --- | --- | --- | --- |
+| esp32s2-photoframe-it8951 |  |  | ✅ | ✅ |
 <!-- END COMPILE_FLAG_REPORT:MATRIX_FEATURES -->
 
 ## Board Matrix: Selectors (generated)
 
 <!-- BEGIN COMPILE_FLAG_REPORT:MATRIX_SELECTORS -->
-| board-name | DISPLAY_DRIVER | TOUCH_DRIVER |
-| --- | --- | --- |
-| esp32s2-photoframe-it8951 | DISPLAY_DRIVER_IT8951 | — |
+| board-name | DISPLAY_DRIVER |
+| --- | --- |
+| esp32s2-photoframe-it8951 | DISPLAY_DRIVER_IT8951 |
 <!-- END COMPILE_FLAG_REPORT:MATRIX_SELECTORS -->
 
 ## Usage Map (preprocessor only, generated)
@@ -108,10 +100,6 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 <!-- BEGIN COMPILE_FLAG_REPORT:USAGE -->
 - **HAS_BACKLIGHT**
   - src/app/board_config.h
-  - src/app/drivers/arduino_gfx_driver.cpp
-  - src/app/drivers/tft_espi_driver.cpp
-  - src/app/screen_saver_manager.cpp
-  - src/app/screen_saver_manager.h
   - src/app/web_portal_config.cpp
   - src/app/web_portal_display.cpp
   - src/app/web_portal_display.h
@@ -121,48 +109,17 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 - **HAS_DISPLAY**
   - src/app/app.ino
   - src/app/board_config.h
-  - src/app/config_manager.cpp
-  - src/app/config_manager.h
   - src/app/device_telemetry.cpp
   - src/app/display_drivers.cpp
   - src/app/display_manager.cpp
   - src/app/ha_discovery.cpp
-  - src/app/image_api.cpp
   - src/app/it8951_renderer.cpp
-  - src/app/lvgl_jpeg_decoder.cpp
-  - src/app/lvgl_jpeg_decoder.h
   - src/app/portal_controller.cpp
-  - src/app/screen_saver_manager.cpp
-  - src/app/screen_saver_manager.h
-  - src/app/screens.cpp
-  - src/app/screens/lvgl_image_screen.cpp
-  - src/app/screens/lvgl_image_screen.h
-  - src/app/web_portal.cpp
   - src/app/web_portal_config.cpp
   - src/app/web_portal_device_api.cpp
   - src/app/web_portal_display.cpp
   - src/app/web_portal_display.h
   - src/app/web_portal_routes.cpp
-- **HAS_IMAGE_API**
-  - src/app/board_config.h
-  - src/app/display_manager.cpp
-  - src/app/display_manager.h
-  - src/app/image_api.cpp
-  - src/app/image_api.h
-  - src/app/jpeg_preflight.cpp
-  - src/app/jpeg_preflight.h
-  - src/app/lv_conf.h
-  - src/app/lvgl_jpeg_decoder.cpp
-  - src/app/lvgl_jpeg_decoder.h
-  - src/app/screens.cpp
-  - src/app/screens/direct_image_screen.cpp
-  - src/app/screens/direct_image_screen.h
-  - src/app/screens/lvgl_image_screen.cpp
-  - src/app/screens/lvgl_image_screen.h
-  - src/app/strip_decoder.cpp
-  - src/app/strip_decoder.h
-  - src/app/web_portal.cpp
-  - src/app/web_portal.h
 - **HAS_MQTT**
   - src/app/app.ino
   - src/app/board_config.h
@@ -172,28 +129,14 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/ha_discovery.h
   - src/app/mqtt_manager.cpp
   - src/app/mqtt_manager.h
-- **HAS_TOUCH**
-  - src/app/board_config.h
-  - src/app/config_manager.cpp
-  - src/app/screen_saver_manager.cpp
-  - src/app/touch_drivers.cpp
-  - src/app/touch_manager.cpp
-  - src/app/touch_manager.h
 - **DISPLAY_DRIVER**
   - src/app/board_config.h
   - src/app/display_drivers.cpp
   - src/app/display_manager.cpp
-- **TOUCH_DRIVER**
-  - src/app/board_config.h
-  - src/app/touch_drivers.cpp
-  - src/app/touch_manager.cpp
-- **BUTTON_PIN**
-  - src/app/board_config.h
 - **DISPLAY_HEIGHT**
   - src/app/board_config.h
 - **DISPLAY_ROTATION**
   - src/app/board_config.h
-  - src/app/touch_manager.cpp
 - **DISPLAY_WIDTH**
   - src/app/board_config.h
 - **EINK_MIN_PRESENT_INTERVAL_MS**
@@ -213,16 +156,6 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 - **HEALTH_HISTORY_SECONDS**
   - src/app/board_config.h
 - **HEALTH_POLL_INTERVAL_MS**
-  - src/app/board_config.h
-- **IMAGE_API_DECODE_HEADROOM_BYTES**
-  - src/app/board_config.h
-- **IMAGE_API_DEFAULT_TIMEOUT_MS**
-  - src/app/board_config.h
-- **IMAGE_API_MAX_SIZE_BYTES**
-  - src/app/board_config.h
-- **IMAGE_API_MAX_TIMEOUT_MS**
-  - src/app/board_config.h
-- **IMAGE_STRIP_BATCH_MAX_ROWS**
   - src/app/board_config.h
 - **LED_ACTIVE_HIGH**
   - src/app/board_config.h

@@ -1,6 +1,8 @@
-# Display & Touch Architecture
+# Display Architecture
 
-This document describes the display and touch subsystem architecture, design patterns, and extension points for adding new displays, touch controllers, and screens.
+This document describes the display subsystem architecture, design patterns, and extension points for adding new displays and screens.
+
+> Note: Touch input has been removed from this project. Touch-related sections below are deprecated and will be cleaned up.
 
 ## Table of Contents
 

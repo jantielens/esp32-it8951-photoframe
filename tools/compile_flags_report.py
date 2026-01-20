@@ -542,10 +542,9 @@ def cmd_build(args: argparse.Namespace) -> None:
         )
 
     board_config_h = root / "src" / "app" / "board_config.h"
-    lv_conf_h = root / "src" / "app" / "lv_conf.h"
-
     defaults, _unconditional = parse_board_config_defaults(board_config_h)
-    lv_conf_defines = set(parse_all_defines(lv_conf_h).keys())
+    lv_conf_h = root / "src" / "app" / "lv_conf.h"
+    lv_conf_defines = set(parse_all_defines(lv_conf_h).keys()) if lv_conf_h.exists() else set()
 
     overrides_path = root / "src" / "boards" / board / "board_overrides.h"
     overrides = parse_all_defines(overrides_path) if overrides_path.exists() else {}
@@ -672,7 +671,7 @@ def cmd_md(args: argparse.Namespace) -> None:
     defaults, _unconditional = parse_board_config_defaults(board_config_h)
     descriptions = parse_board_config_descriptions(board_config_h)
 
-    lv_conf_defines = set(parse_all_defines(lv_conf_h).keys())
+    lv_conf_defines = set(parse_all_defines(lv_conf_h).keys()) if lv_conf_h.exists() else set()
 
     # Gather per-board overrides (excluding lv_conf macros).
     board_overrides: Dict[str, Dict[str, str]] = {}

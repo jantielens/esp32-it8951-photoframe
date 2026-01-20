@@ -43,13 +43,6 @@
 #define KEY_BASIC_AUTH_ENABLED "ba_en"
 #define KEY_BASIC_AUTH_USER    "ba_user"
 #define KEY_BASIC_AUTH_PASS    "ba_pass"
-#if HAS_DISPLAY
-#define KEY_SCREEN_SAVER_ENABLED "ss_en"
-#define KEY_SCREEN_SAVER_TIMEOUT "ss_to"
-#define KEY_SCREEN_SAVER_FADE_OUT "ss_fo"
-#define KEY_SCREEN_SAVER_FADE_IN "ss_fi"
-#define KEY_SCREEN_SAVER_WAKE_TOUCH "ss_wt"
-#endif
 #define KEY_MAGIC          "magic"
 
 static Preferences preferences;
@@ -152,19 +145,6 @@ bool config_manager_load(DeviceConfig *config) {
         config->basic_auth_username[0] = '\0';
         config->basic_auth_password[0] = '\0';
 
-        #if HAS_DISPLAY
-        // Screen saver defaults
-        config->screen_saver_enabled = false;
-        config->screen_saver_timeout_seconds = 300;
-        config->screen_saver_fade_out_ms = 800;
-        config->screen_saver_fade_in_ms = 400;
-        #if HAS_TOUCH
-        config->screen_saver_wake_on_touch = true;
-        #else
-        config->screen_saver_wake_on_touch = false;
-        #endif
-        #endif
-        
         return false;
     }
     
@@ -217,19 +197,6 @@ bool config_manager_load(DeviceConfig *config) {
     preferences.getString(KEY_BASIC_AUTH_USER, config->basic_auth_username, CONFIG_BASIC_AUTH_USERNAME_MAX_LEN);
     preferences.getString(KEY_BASIC_AUTH_PASS, config->basic_auth_password, CONFIG_BASIC_AUTH_PASSWORD_MAX_LEN);
 
-    #if HAS_DISPLAY
-    // Load screen saver settings
-    config->screen_saver_enabled = preferences.getBool(KEY_SCREEN_SAVER_ENABLED, false);
-    config->screen_saver_timeout_seconds = preferences.getUShort(KEY_SCREEN_SAVER_TIMEOUT, 300);
-    config->screen_saver_fade_out_ms = preferences.getUShort(KEY_SCREEN_SAVER_FADE_OUT, 800);
-    config->screen_saver_fade_in_ms = preferences.getUShort(KEY_SCREEN_SAVER_FADE_IN, 400);
-    #if HAS_TOUCH
-    config->screen_saver_wake_on_touch = preferences.getBool(KEY_SCREEN_SAVER_WAKE_TOUCH, true);
-    #else
-    config->screen_saver_wake_on_touch = preferences.getBool(KEY_SCREEN_SAVER_WAKE_TOUCH, false);
-    #endif
-    #endif
-    
     config->magic = magic;
     
     preferences.end();
@@ -303,15 +270,6 @@ bool config_manager_save(const DeviceConfig *config) {
     preferences.putString(KEY_BASIC_AUTH_USER, config->basic_auth_username);
     preferences.putString(KEY_BASIC_AUTH_PASS, config->basic_auth_password);
 
-    #if HAS_DISPLAY
-    // Save screen saver settings
-    preferences.putBool(KEY_SCREEN_SAVER_ENABLED, config->screen_saver_enabled);
-    preferences.putUShort(KEY_SCREEN_SAVER_TIMEOUT, config->screen_saver_timeout_seconds);
-    preferences.putUShort(KEY_SCREEN_SAVER_FADE_OUT, config->screen_saver_fade_out_ms);
-    preferences.putUShort(KEY_SCREEN_SAVER_FADE_IN, config->screen_saver_fade_in_ms);
-    preferences.putBool(KEY_SCREEN_SAVER_WAKE_TOUCH, config->screen_saver_wake_on_touch);
-    #endif
-    
     // Save magic number last (indicates valid config)
     preferences.putUInt(KEY_MAGIC, CONFIG_MAGIC);
     

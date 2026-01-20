@@ -160,40 +160,9 @@ void loop() {
 }
 ```
 
-**Advanced Example - Different Display Backends (HAL):**
+**Display Backend (HAL):**
 
-This project selects display backends via a single selector macro in `board_overrides.h`:
-
-```cpp
-// Board A override (example: native ST7789V2 SPI)
-#define HAS_DISPLAY true
-#define DISPLAY_DRIVER DISPLAY_DRIVER_ST7789V2
-#define DISPLAY_WIDTH 240
-#define DISPLAY_HEIGHT 280
-
-// Board B override (example: TFT_eSPI backend, controller configured separately)
-#define HAS_DISPLAY true
-#define DISPLAY_DRIVER DISPLAY_DRIVER_TFT_ESPI
-#define DISPLAY_WIDTH 320
-#define DISPLAY_HEIGHT 240
-```
-
-Application code typically does **not** include display library headers directly. Instead it talks to the HAL (`DisplayDriver`) and/or the `DisplayManager`.
-If you need compile-time backend-specific logic, use the selector value:
-
-```cpp
-#include "board_config.h"
-
-#if HAS_DISPLAY
-  #if DISPLAY_DRIVER == DISPLAY_DRIVER_ST7789V2
-    // Native ST7789V2-specific compile-time tweaks
-  #elif DISPLAY_DRIVER == DISPLAY_DRIVER_TFT_ESPI
-    // TFT_eSPI-specific compile-time tweaks
-  #endif
-#endif
-```
-
-Driver implementations are conditionally compiled via the sketch-root translation unit `src/app/display_drivers.cpp`.
+This project targets a single e‑ink display backend (IT8951). The `DISPLAY_DRIVER` selector remains fixed to `DISPLAY_DRIVER_IT8951` and the implementation is included via the sketch-root translation unit `src/app/display_drivers.cpp`.
 
 **Build Detection**: The build script automatically:
 1. Checks if `src/boards/[board-name]/` directory exists

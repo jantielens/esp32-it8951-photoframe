@@ -105,49 +105,6 @@
                     <small>Brightness adjusts immediately. Click Save to persist across reboots.</small>
                 </div>
 
-                <hr style="border: none; border-top: 1px solid #e5e5ea; margin: 18px 0;">
-
-                <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #1d1d1f;">Screen Saver (Burn-in Prevention)</h3>
-
-                <div class="form-group">
-                    <label style="display: flex; align-items: center; gap: 10px;">
-                        <input type="checkbox" id="screen_saver_enabled" name="screen_saver_enabled">
-                        Enable screen saver (turn off backlight when idle)
-                    </label>
-                    <small>When enabled, the backlight will fade out after inactivity.</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="screen_saver_timeout_seconds">Idle Timeout (seconds)</label>
-                    <input type="number" id="screen_saver_timeout_seconds" name="screen_saver_timeout_seconds" min="0" max="65535" placeholder="300">
-                    <small>0 disables automatic sleep. Example: 300 = 5 minutes.</small>
-                </div>
-
-                <div class="grid-2col">
-                    <section class="section" style="padding: 0; background: transparent; box-shadow: none;">
-                        <div class="form-group">
-                            <label for="screen_saver_fade_out_ms">Fade Out (ms)</label>
-                            <input type="number" id="screen_saver_fade_out_ms" name="screen_saver_fade_out_ms" min="0" max="60000" placeholder="800">
-                            <small>0 = instant off</small>
-                        </div>
-                    </section>
-                    <section class="section" style="padding: 0; background: transparent; box-shadow: none;">
-                        <div class="form-group">
-                            <label for="screen_saver_fade_in_ms">Fade In (ms)</label>
-                            <input type="number" id="screen_saver_fade_in_ms" name="screen_saver_fade_in_ms" min="0" max="60000" placeholder="400">
-                            <small>0 = instant on</small>
-                        </div>
-                    </section>
-                </div>
-
-                <div class="form-group">
-                    <label style="display: flex; align-items: center; gap: 10px;">
-                        <input type="checkbox" id="screen_saver_wake_on_touch" name="screen_saver_wake_on_touch">
-                        Wake on touch press
-                    </label>
-                    <small>Only applies to touch-enabled boards.</small>
-                </div>
-
                 <div class="form-group" id="screen-selection-group" style="display:none;">
                     <label for="screen_selection">
                         Current Screen

@@ -688,13 +688,6 @@ async function loadConfig() {
         setTextIfExists('brightness-value', brightness);
         updateBrightnessSliderBackground(brightness);
 
-        // Screen saver settings
-        setCheckedIfExists('screen_saver_enabled', config.screen_saver_enabled);
-        setValueIfExists('screen_saver_timeout_seconds', config.screen_saver_timeout_seconds);
-        setValueIfExists('screen_saver_fade_out_ms', config.screen_saver_fade_out_ms);
-        setValueIfExists('screen_saver_fade_in_ms', config.screen_saver_fade_in_ms);
-        setCheckedIfExists('screen_saver_wake_on_touch', config.screen_saver_wake_on_touch);
-        
         // Hide loading overlay (silent load)
         const overlay = document.getElementById('form-loading-overlay');
         if (overlay) overlay.style.display = 'none';
@@ -736,8 +729,7 @@ function extractFormFields(formData) {
                     'blob_sas_url',
                     'mqtt_host', 'mqtt_port', 'mqtt_username', 'mqtt_password', 'mqtt_interval_seconds',
                     'basic_auth_enabled', 'basic_auth_username', 'basic_auth_password',
-                    'backlight_brightness',
-                    'screen_saver_enabled', 'screen_saver_timeout_seconds', 'screen_saver_fade_out_ms', 'screen_saver_fade_in_ms', 'screen_saver_wake_on_touch'];
+                    'backlight_brightness'];
     
     fields.forEach(field => {
         const element = document.querySelector(`[name="${field}"]`);

@@ -197,7 +197,7 @@ python3 tools/sync_images_to_device.py \
 
 ## tools/generate-board-driver-table.py
 
-**Purpose:** Generate a markdown table mapping **board → selected display/touch backends → basic hardware**.
+**Purpose:** Generate a markdown table mapping **board → selected display backend → basic hardware**.
 
 **Source of truth:** `src/boards/<board>/board_overrides.h` (see the "Driver Selection (HAL)" block).
 

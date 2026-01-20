@@ -40,8 +40,4 @@ bool web_portal_is_ap_mode();                      // Check if in AP mode
 bool web_portal_ota_in_progress();                 // Check if OTA update is in progress
 DeviceConfig* web_portal_get_current_config();      // Get current config pointer
 
-#if HAS_IMAGE_API
-void web_portal_process_pending_images();          // Process pending image uploads (call in loop)
-#endif
-
 #endif // WEB_PORTAL_H
