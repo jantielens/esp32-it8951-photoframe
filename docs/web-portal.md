@@ -947,11 +947,12 @@ Dismiss the currently displayed image and return to previous screen.
 
 ### SD Image Management (G4)
 
-Manage `.g4` images stored in the SD card root. Files must be `.g4` and smaller than 2 MB.
+Manage `.g4` images stored in `/perm` and `/temp`. Files must be `.g4` and smaller than 2 MB.
 
 #### `GET /api/sd/images`
 
-Queue a job to list `.g4` images on the SD card (sorted by filename).
+Queue a job to list `.g4` images on the SD card (sorted by filename). Returned names include
+the `perm/` or `temp/` prefix.
 
 **Response (Queued):**
 ```json
@@ -965,7 +966,8 @@ Queue a job to list `.g4` images on the SD card (sorted by filename).
 #### `POST /api/sd/images`
 
 Upload a `.g4` file to SD (overwrites on conflict). Upload queues a job after
-the HTTP payload is received.
+the HTTP payload is received. Uploads are stored under `perm/` (prefix is added
+if omitted).
 
 **Request:**
 - Content-Type: `multipart/form-data`
@@ -982,7 +984,7 @@ the HTTP payload is received.
 
 #### `DELETE /api/sd/images?name=<filename>`
 
-Delete a `.g4` file from SD.
+Delete a `.g4` file from SD. The `name` must include the `perm/` or `temp/` prefix.
 
 **Response (Queued):**
 ```json
@@ -995,7 +997,7 @@ Delete a `.g4` file from SD.
 
 #### `POST /api/sd/images/display?name=<filename>`
 
-Queue an immediate display of a `.g4` image.
+Queue an immediate display of a `.g4` image. The `name` must include the `perm/` or `temp/` prefix.
 
 **Response (Queued):**
 ```json
@@ -1029,7 +1031,7 @@ Check status of a queued SD job.
   "type": "list",
   "state": "done",
   "ok": true,
-  "files": ["a.g4", "b.g4", "c.g4"]
+  "files": ["perm/a.g4", "temp/b.g4", "perm/c.g4"]
 }
 ```
 

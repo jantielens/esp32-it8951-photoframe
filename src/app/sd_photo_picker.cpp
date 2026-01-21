@@ -6,7 +6,7 @@
 #include <vector>
 #include <algorithm>
 
-static constexpr size_t kMaxG4NameLen = 63;
+static constexpr size_t kMaxG4NameLen = 127;
 static constexpr uint32_t kInvalidIndex = 0xFFFFFFFFu;
 static constexpr uint32_t kNoG4LogIntervalMs = 60000;
 

@@ -19,7 +19,7 @@ static constexpr uint32_t kBlobHttpRetryDelayMs = 1000;
 static constexpr uint8_t kBlobHttpRetries = 3;
 static constexpr uint8_t kBlobListMaxResults = 50;
 static constexpr const char *kAzureMsVersion = "2020-10-02";
-static constexpr size_t kMaxG4NameLen = 63;
+static constexpr size_t kMaxG4NameLen = 127;
 static constexpr uint32_t kBlobUploadJobTimeoutMs = 120000;
 
 struct SasUrlParts {

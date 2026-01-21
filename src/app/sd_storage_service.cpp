@@ -19,7 +19,7 @@
 
 namespace {
 static constexpr size_t kMaxJobs = 16;
-static constexpr size_t kMaxNameLen = 63;
+static constexpr size_t kMaxNameLen = 127;
 static constexpr uint32_t kJobGcMinAgeMs = 60000;
 static constexpr uint32_t kWorkerStackSize = 8192;
 static constexpr UBaseType_t kWorkerPriority = 2;
@@ -161,16 +161,35 @@ static bool ensure_sd_ready_internal() {
     return true;
 }
 
+static bool has_prefix(const char *name, const char *prefix) {
+    if (!name || !prefix) return false;
+    const size_t prefix_len = strlen(prefix);
+    return strncmp(name, prefix, prefix_len) == 0;
+}
+
 static bool is_valid_g4_name(const char *name) {
     if (!name) return false;
     const size_t len = strlen(name);
     if (len == 0 || len > kMaxNameLen) return false;
-    if (strchr(name, '/') || strchr(name, '\\')) return false;
-    return (len >= 3 && strcmp(name + (len - 3), ".g4") == 0);
+    if (strchr(name, '\\')) return false;
+    if (strstr(name, "..")) return false;
+    if (len < 3 || strcmp(name + (len - 3), ".g4") != 0) return false;
+
+    size_t slash_count = 0;
+    for (const char *p = name; *p; ++p) {
+        if (*p == '/') slash_count++;
+    }
+
+    if (slash_count == 0) return true;
+    if (slash_count == 1 && (has_prefix(name, "perm/") || has_prefix(name, "temp/"))) return true;
+    return false;
 }
 
-static bool collect_g4_names(std::vector<String> &names) {
-    File root = SD.open("/");
+static bool collect_g4_names_from_dir(const char *dir, const char *prefix, std::vector<String> &names) {
+    if (!dir) return false;
+    if (!SD.exists(dir)) return true;
+
+    File root = SD.open(dir);
     if (!root) return false;
     if (!root.isDirectory()) {
         root.close();
@@ -181,8 +200,14 @@ static bool collect_g4_names(std::vector<String> &names) {
     while (file) {
         if (!file.isDirectory()) {
             const char *name = file.name();
-            if (is_valid_g4_name(name)) {
-                names.push_back(String(name));
+            if (name && name[0] != '\0') {
+                const size_t len = strlen(name);
+                if (len >= 3 && strcmp(name + (len - 3), ".g4") == 0) {
+                    String entry = prefix ? String(prefix) + String(name) : String(name);
+                    if (entry.length() <= kMaxNameLen) {
+                        names.push_back(entry);
+                    }
+                }
             }
         }
         file.close();
@@ -191,6 +216,13 @@ static bool collect_g4_names(std::vector<String> &names) {
 
     root.close();
     return true;
+}
+
+static bool collect_g4_names(std::vector<String> &names) {
+    bool ok = true;
+    ok = collect_g4_names_from_dir("/perm", "perm/", names) && ok;
+    ok = collect_g4_names_from_dir("/temp", "temp/", names) && ok;
+    return ok;
 }
 
 static void sort_names(std::vector<String> &names) {
@@ -208,6 +240,18 @@ static bool write_upload_to_sd(SdJob *job) {
 
     const String target_path = "/" + String(job->name);
     const String temp_path = target_path + ".tmp";
+
+    const int last_slash = target_path.lastIndexOf('/');
+    if (last_slash > 0) {
+        const String dir = target_path.substring(0, last_slash);
+        if (!SD.exists(dir)) {
+            if (!SD.mkdir(dir)) {
+                job_set_message(job, "Create dir failed");
+                LOGE("SDJob", "Upload mkdir failed %s", dir.c_str());
+                return false;
+            }
+        }
+    }
 
     LOGI("SDJob", "Upload start name=%s bytes=%u", job->name, (unsigned)job->buffer_size);
 

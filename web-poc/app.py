@@ -2,7 +2,7 @@ import json
 import os
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -168,10 +168,17 @@ def convert_jpg_to_g4_image(img: Image.Image, width: int, height: int, variant: 
     return pack_g4(out)
 
 
-def make_g4_name(variant: str) -> str:
-    guid = uuid.uuid4().hex
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    return f"{guid}_{timestamp}.g4"
+def make_perm_g4_name() -> str:
+    guid = str(uuid.uuid4())
+    upload_ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    return f"perm/{upload_ts}__{guid}.g4"
+
+
+def make_temp_g4_name(expires_at: datetime) -> str:
+    guid = str(uuid.uuid4())
+    upload_ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    expires_ts = expires_at.strftime("%Y%m%dT%H%M%SZ")
+    return f"temp/{expires_ts}__{upload_ts}__{guid}.g4"
 
 
 def build_blob_url(container_sas_url: str, blob_name: str) -> str:
@@ -237,7 +244,13 @@ def index(request: Request):
 
 
 @app.post("/upload")
-async def upload(request: Request, device_id: str = Form(...), file: UploadFile = File(...)):
+async def upload(
+    request: Request,
+    device_id: str = Form(...),
+    queue: str = Form("perm"),
+    ttl_hours: Optional[int] = Form(None),
+    file: UploadFile = File(...),
+):
     config = load_config()
     user = get_current_user(request)
     if not user:
@@ -265,7 +278,18 @@ async def upload(request: Request, device_id: str = Form(...), file: UploadFile 
     if not container_sas_url:
         return JSONResponse(status_code=404, content={"status": "error", "error": "Device not found"})
 
-    blob_name = make_g4_name(DEFAULT_VARIANT)
+    queue = (queue or "perm").lower()
+    if queue not in ("perm", "temp"):
+        return JSONResponse(status_code=400, content={"status": "error", "error": "Invalid queue"})
+
+    if queue == "temp":
+        ttl = ttl_hours if ttl_hours is not None else 24
+        if ttl <= 0 or ttl > 24 * 30:
+            return JSONResponse(status_code=400, content={"status": "error", "error": "Invalid TTL"})
+        expires_at = datetime.utcnow() + timedelta(hours=ttl)
+        blob_name = make_temp_g4_name(expires_at)
+    else:
+        blob_name = make_perm_g4_name()
     blob_url = build_blob_url(container_sas_url, blob_name)
     status, body = upload_blob(blob_url, payload, content_type="application/octet-stream")
     if status not in (200, 201):

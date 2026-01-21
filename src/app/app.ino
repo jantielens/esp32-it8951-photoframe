@@ -22,6 +22,7 @@
 #include <WiFi.h>
 #include <esp_sleep.h>
 #include <driver/rtc_io.h>
+#include <time.h>
 static constexpr uint32_t kDefaultSleepSeconds = 60;
 static constexpr uint32_t kSdFrequencyHz = 80000000;
 static constexpr uint16_t kDefaultLongPressMs = 1500;
@@ -29,6 +30,7 @@ static constexpr uint8_t kButtonActiveLevel = LOW;
 static constexpr uint32_t kButtonDebounceMs = 30;
 static constexpr uint8_t kTouchGpio = 6; // TOUCH06 -> GPIO6 on ESP32-S2
 static constexpr uint32_t kNoImageRetryMs = 5000;
+static constexpr time_t kValidEpochThreshold = 1609459200; // 2021-01-01T00:00:00Z
 
 static SPIClass sdSpi(HSPI);
 
@@ -93,6 +95,39 @@ static bool connect_wifi_sta(const DeviceConfig &config, const char *reason, boo
   #if HAS_DISPLAY
   if (show_status) {
     display_manager_set_splash_status("WiFi connect failed");
+    display_manager_render_now();
+  }
+  #endif
+  return false;
+}
+
+static bool sync_time_ntp(bool wifi_connected, bool show_status) {
+  if (!wifi_connected) return false;
+
+  LOGI("Time", "NTP sync start");
+  #if HAS_DISPLAY
+  if (show_status) {
+    display_manager_set_splash_status("Syncing time...");
+    display_manager_render_now();
+  }
+  #endif
+
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov", "time.google.com");
+  const unsigned long start = millis();
+  time_t now = 0;
+  while (millis() - start < 5000) {
+    time(&now);
+    if (now >= kValidEpochThreshold) {
+      LOGI("Time", "NTP sync OK (%lu)", (unsigned long)now);
+      return true;
+    }
+    delay(100);
+  }
+
+  LOGW("Time", "NTP sync failed (timeout)");
+  #if HAS_DISPLAY
+  if (show_status) {
+    display_manager_set_splash_status("Time sync failed");
     display_manager_render_now();
   }
   #endif
@@ -222,6 +257,8 @@ static void run_always_on(DeviceConfig &config, bool config_loaded) {
 
   const SdCardPins pins = make_sd_pins();
   portal_controller_start(config, config_loaded, sdSpi, pins, kSdFrequencyHz);
+
+  sync_time_ntp(WiFi.status() == WL_CONNECTED, false);
 
   #if HAS_MQTT
   mqtt_init_from_config(config);
@@ -362,6 +399,8 @@ void setup() {
     const bool show_status = !fast_wake;
     wifi_connected = connect_wifi_sta(config, "Boot", show_status);
   }
+
+  sync_time_ntp(wifi_connected, !fast_wake);
 
   bool downloaded = false;
   if (strlen(config.blob_sas_url) > 0) {

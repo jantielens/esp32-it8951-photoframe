@@ -24,7 +24,7 @@ static bool enqueue_render_job() {
     }
 
     uint32_t working_index = rtc_image_state_get_last_image_index();
-    char working_name_buf[64] = {0};
+    char working_name_buf[RTC_IMAGE_NAME_MAX_LEN] = {0};
     const char *rtc_name = rtc_image_state_get_last_image_name();
     if (rtc_name && rtc_name[0] != '\0') {
         strlcpy(working_name_buf, rtc_name, sizeof(working_name_buf));

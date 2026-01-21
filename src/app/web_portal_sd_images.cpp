@@ -10,7 +10,7 @@
 
 namespace {
 static constexpr size_t kMaxG4UploadBytes = 2 * 1024 * 1024;
-static constexpr size_t kMaxG4NameLen = 63;
+static constexpr size_t kMaxG4NameLen = 127;
 
 struct UploadState {
     uint8_t *buffer = nullptr;
@@ -23,9 +23,26 @@ struct UploadState {
 
 static bool is_valid_g4_name(const String &name) {
     if (name.length() == 0 || name.length() > kMaxG4NameLen) return false;
-    if (name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) return false;
+    if (name.indexOf('\\') >= 0) return false;
     if (!name.endsWith(".g4")) return false;
-    return true;
+    if (name.indexOf("..") >= 0) return false;
+
+    const int slash_pos = name.indexOf('/');
+    if (slash_pos < 0) return true;
+    if (name.lastIndexOf('/') != slash_pos) return false;
+    return name.startsWith("perm/") || name.startsWith("temp/");
+}
+
+static bool is_valid_perm_upload_name(const String &name) {
+    if (name.length() == 0 || name.length() > kMaxG4NameLen) return false;
+    if (name.indexOf('\\') >= 0) return false;
+    if (!name.endsWith(".g4")) return false;
+    if (name.indexOf("..") >= 0) return false;
+
+    const int slash_pos = name.indexOf('/');
+    if (slash_pos < 0) return true;
+    if (name.lastIndexOf('/') != slash_pos) return false;
+    return name.startsWith("perm/");
 }
 
 static void send_upload_error(AsyncWebServerRequest *request, UploadState *state, int code, const char *msg) {
@@ -130,7 +147,12 @@ void handleUploadSdImage(AsyncWebServerRequest *request, String filename, size_t
 
     UploadState *state = reinterpret_cast<UploadState*>(request->_tempObject);
     if (index == 0) {
-        if (!is_valid_g4_name(filename)) {
+        String target_name = filename;
+        if (filename.indexOf('/') < 0) {
+            target_name = String("perm/") + filename;
+        }
+
+        if (!is_valid_perm_upload_name(target_name)) {
             LOGW("API", "POST /api/sd/images: invalid filename %s", filename.c_str());
             web_portal_send_json_error(request, 400, "Invalid filename");
             return;
@@ -149,7 +171,7 @@ void handleUploadSdImage(AsyncWebServerRequest *request, String filename, size_t
             return;
         }
         request->_tempObject = state;
-        strlcpy(state->name, filename.c_str(), sizeof(state->name));
+        strlcpy(state->name, target_name.c_str(), sizeof(state->name));
         LOGI("API", "POST /api/sd/images: start %s bytes=%u", state->name, (unsigned)total);
         state->capacity = total;
         state->buffer = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));

@@ -35,6 +35,18 @@
             {% endfor %}
           </select>
 
+          <label for="queue">Queue</label>
+          <select id="queue" name="queue" required>
+            <option value="perm" selected>Permanent (perm/)</option>
+            <option value="temp">Temporary (temp/)</option>
+          </select>
+
+          <div id="ttl-wrapper" style="display: none;">
+            <label for="ttl_hours">Temp TTL (hours)</label>
+            <input id="ttl_hours" name="ttl_hours" type="number" min="1" max="720" value="24" />
+            <div class="muted">Expires after upload + TTL. Max 720h.</div>
+          </div>
+
           <label for="file">JPG file</label>
           <input id="file" name="file" type="file" accept=".jpg,.jpeg,image/jpeg" required />
 
@@ -57,6 +69,8 @@
       const errorBox = document.getElementById('error');
       const messageBox = document.getElementById('message');
       const fileInput = document.getElementById('file');
+      const queueSelect = document.getElementById('queue');
+      const ttlWrapper = document.getElementById('ttl-wrapper');
       const preview = document.getElementById('preview');
       const previewImg = document.getElementById('preview-img');
 
@@ -67,7 +81,20 @@
         messageBox.textContent = '';
       }
 
+      function updateTtlVisibility() {
+        if (!queueSelect || !ttlWrapper) return;
+        if (queueSelect.value === 'temp') {
+          ttlWrapper.style.display = 'block';
+        } else {
+          ttlWrapper.style.display = 'none';
+        }
+      }
+
       if (form) {
+        updateTtlVisibility();
+        if (queueSelect) {
+          queueSelect.addEventListener('change', updateTtlVisibility);
+        }
         form.addEventListener('submit', (event) => {
           event.preventDefault();
           resetMessages();

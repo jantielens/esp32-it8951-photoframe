@@ -41,9 +41,9 @@
 - WiFi retry policy handled by existing template code
 
 ## SD card requirements
-- Images live in SD root (no subfolders)
+- Images live under `/perm/` and `/temp/`
 - Image format: preprocessed G4 files (current pipeline)
-- Max filename length: 63 characters (plus leading `/`)
+- Max filename length: 127 characters (plus leading `/`)
 - Allowed filenames: standard FAT 8.3 and long filenames; reject names that exceed limit
 
 ## Image selection
