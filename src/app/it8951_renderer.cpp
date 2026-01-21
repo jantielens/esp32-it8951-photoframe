@@ -31,6 +31,11 @@ static uint8_t *raw_row_buffer = nullptr;
 static uint8_t *g4_row_buffer = nullptr;
 static uint8_t *g4_chunk_buffer = nullptr;
 
+// Forward declarations for low-level IT8951 I80 helpers (defined below).
+static void it8951_wait_ready(uint16_t busy_time_ms);
+static void it8951_write_command16(uint16_t cmd);
+static void it8951_write_data16(uint16_t data);
+
 static bool buffers_ready = false;
 static bool buffers_logged = false;
 
@@ -87,6 +92,38 @@ static bool is_ui_active() {
 #else
     return false;
 #endif
+}
+
+// GxEPD2 IT8951 API: refresh(bool partial_update_mode = false)
+// Our code commonly reasons in terms of "full refresh".
+static constexpr bool kLogRefreshModes = false;
+static inline void it8951_refresh_from_full_flag(bool full_refresh, const char *tag) {
+    const bool partial_update_mode = !full_refresh;
+    if (kLogRefreshModes) {
+        LOGI("EINK", "Refresh(%s): full=%s -> partial=%s",
+             tag ? tag : "?",
+             full_refresh ? "true" : "false",
+             partial_update_mode ? "true" : "false");
+    }
+    display.refresh(partial_update_mode);
+}
+
+// Stronger refresh for photo presentation.
+// Motivation: after deep sleep, a normal full refresh (mode=2) may still leave ghosting.
+static constexpr uint8_t kPhotoFullRefreshPasses = 2; // extra cleanup (slower, but reduces ghosting)
+
+static inline void it8951_photo_refresh_fullscreen(const char *tag) {
+    for (uint8_t i = 0; i < kPhotoFullRefreshPasses; i++) {
+        it8951_refresh_from_full_flag(true, tag);
+    }
+}
+
+static inline void it8951_refresh_partial_region(int16_t x, int16_t y, int16_t w, int16_t h, const char *tag) {
+    if (kLogRefreshModes) {
+        LOGI("EINK", "RefreshRegion(%s): x=%d y=%d w=%d h=%d (partial waveform)",
+             tag ? tag : "?", (int)x, (int)y, (int)w, (int)h);
+    }
+    display.refresh(x, y, w, h);
 }
 
 bool it8951_renderer_is_busy() {
@@ -390,7 +427,8 @@ static bool draw_bmp_16gray(File &file, int16_t x, int16_t y) {
 
             if (valid) {
                 const unsigned long refresh_start = millis();
-                display.refresh(true);
+                // Full-screen photo render should use full update waveform.
+                it8951_refresh_from_full_flag(true, "bmp16gray");
                 LOG_DURATION("EINK", "Refresh", refresh_start);
             }
         }
@@ -697,7 +735,7 @@ bool it8951_render_raw8(const char *raw_path) {
 
     if (ok) {
         const unsigned long refresh_start = millis();
-        display.refresh(false);
+        it8951_photo_refresh_fullscreen("raw8");
         LOG_DURATION("EINK", "Refresh", refresh_start);
     }
 
@@ -730,7 +768,7 @@ bool it8951_render_g4(const char *g4_path) {
 
     if (ok) {
         const unsigned long refresh_start = millis();
-        display.refresh(false);
+        it8951_photo_refresh_fullscreen("g4_file");
         LOG_DURATION("EINK", "Refresh", refresh_start);
     }
 
@@ -782,7 +820,8 @@ bool it8951_render_g4_buffer_ex(const uint8_t* g4, uint16_t w, uint16_t h, bool 
     }
 
     const unsigned long refresh_start = millis();
-    display.refresh(full_refresh);
+    // refresh(bool) expects partial_update_mode; invert our full_refresh flag.
+    it8951_refresh_from_full_flag(full_refresh, "g4buf");
     LOG_DURATION("EINK", "Refresh", refresh_start);
 
     LOG_DURATION("EINK", "RenderG4Buf", start_ms);
@@ -852,7 +891,7 @@ bool it8951_render_g4_buffer_region(const uint8_t* g4, uint16_t panel_w, uint16_
     }
 
     const unsigned long refresh_start = millis();
-    display.refresh(true);
+    it8951_refresh_from_full_flag(true, "g4buf_region");
     LOG_DURATION("EINK", "Refresh", refresh_start);
 
     LOG_DURATION("EINK", "RenderG4BufRegion", start_ms);
@@ -898,9 +937,10 @@ bool it8951_render_g4_region(const uint8_t* g4_region, uint16_t x, uint16_t y,
 
     const unsigned long refresh_start = millis();
     if (full_refresh) {
-        display.refresh(true);
+        // Force a full update waveform; this is a full-screen refresh from controller memory.
+        it8951_refresh_from_full_flag(true, "g4region_full");
     } else {
-        display.refresh((int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h);
+        it8951_refresh_partial_region((int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, "g4region_partial");
     }
     LOG_DURATION("EINK", "Refresh", refresh_start);
 
@@ -922,7 +962,7 @@ bool it8951_render_full_white() {
     const unsigned long start_ms = millis();
 
     display.clearScreen();
-    display.refresh(false);
+    it8951_refresh_from_full_flag(true, "full_white");
 
     LOG_DURATION("EINK", "FullWhite", start_ms);
     set_render_busy(false);
