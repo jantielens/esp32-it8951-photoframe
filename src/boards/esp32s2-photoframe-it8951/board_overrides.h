@@ -32,16 +32,22 @@
 // ---------------------------------------------------------------------------
 // IT8951 E-Ink (from /sample)
 // ---------------------------------------------------------------------------
-// IT8951 chip select (CS). Use default SS pin (matches sample wiring).
-#define IT8951_CS_PIN SS
-// IT8951 data/command pin.
-#define IT8951_DC_PIN 37
+// IT8951 chip select (CS).
+#define IT8951_CS_PIN 34
+// IT8951 SPI MOSI pin.
+#define IT8951_MOSI_PIN 35
+// IT8951 SPI MISO pin.
+#define IT8951_MISO_PIN 37
+// IT8951 SPI SCK pin.
+#define IT8951_SCK_PIN 36
+// IT8951 data/command pin (not present on this breakout).
+#define IT8951_DC_PIN -1
 // IT8951 reset pin.
 #define IT8951_RST_PIN 38
 // IT8951 busy pin.
 #define IT8951_BUSY_PIN 4
-// IT8951 VCOM setting from the sample wiring.
-#define IT8951_VCOM 1553
+// IT8951 VCOM setting from the panel spec (e.g. -1.53V => 1530).
+#define IT8951_VCOM 1530
 
 // ---------------------------------------------------------------------------
 // Display (LVGL) - IT8951 panel

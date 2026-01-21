@@ -21,7 +21,7 @@ This document is a template. Sections marked with `COMPILE_FLAG_REPORT` markers 
 ## Flags (generated)
 
 <!-- BEGIN COMPILE_FLAG_REPORT:FLAGS -->
-Total flags: 35
+Total flags: 38
 
 ### Features (HAS_*)
 
@@ -44,9 +44,12 @@ Total flags: 35
 
 - **BUTTON_PIN** default: `(no default)` — Button (wakeup + long press)
 - **IT8951_BUSY_PIN** default: `(no default)` — IT8951 busy pin.
-- **IT8951_CS_PIN** default: `(no default)` — IT8951 chip select (CS). Use default SS pin (matches sample wiring).
-- **IT8951_DC_PIN** default: `(no default)` — IT8951 data/command pin.
+- **IT8951_CS_PIN** default: `(no default)` — IT8951 chip select (CS).
+- **IT8951_DC_PIN** default: `(no default)` — IT8951 data/command pin (not present on this breakout).
+- **IT8951_MISO_PIN** default: `(no default)` — IT8951 SPI MISO pin.
+- **IT8951_MOSI_PIN** default: `(no default)` — IT8951 SPI MOSI pin.
 - **IT8951_RST_PIN** default: `(no default)` — IT8951 reset pin.
+- **IT8951_SCK_PIN** default: `(no default)` — IT8951 SPI SCK pin.
 - **LED_PIN** default: `2` — GPIO for the built-in LED (only used when HAS_BUILTIN_LED is true).
 - **SD_CS_PIN** default: `(no default)` — SD card chip select (CS).
 - **SD_MISO_PIN** default: `(no default)` — SD card MISO pin.
@@ -70,7 +73,7 @@ Total flags: 35
 - **HEALTH_HISTORY_SAMPLES** default: `((HEALTH_HISTORY_SECONDS * 1000) / HEALTH_HISTORY_PERIOD_MS)` — Derived number of samples.
 - **HEALTH_HISTORY_SECONDS** default: `300` — How much client-side history (sparklines) to keep.
 - **HEALTH_POLL_INTERVAL_MS** default: `5000` — How often the web UI polls /api/health.
-- **IT8951_VCOM** default: `(no default)` — IT8951 VCOM setting from the sample wiring.
+- **IT8951_VCOM** default: `(no default)` — IT8951 VCOM setting from the panel spec (e.g. -1.53V => 1530).
 - **LED_ACTIVE_HIGH** default: `true` — LED polarity: true if HIGH turns the LED on.
 - **MEMORY_TRIPWIRE_CHECK_INTERVAL_MS** default: `5000` — How often to check tripwires from the main loop.
 - **PROJECT_DISPLAY_NAME** default: `"ESP32 Device"` — Human-friendly project name used in the web UI and device name (can be set by build system).
@@ -157,6 +160,14 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/board_config.h
 - **HEALTH_POLL_INTERVAL_MS**
   - src/app/board_config.h
+- **IT8951_MISO_PIN**
+  - src/app/it8951_renderer.cpp
+- **IT8951_MOSI_PIN**
+  - src/app/it8951_renderer.cpp
+- **IT8951_SCK_PIN**
+  - src/app/it8951_renderer.cpp
+- **IT8951_VCOM**
+  - src/app/it8951_renderer.cpp
 - **LED_ACTIVE_HIGH**
   - src/app/board_config.h
 - **LED_PIN**

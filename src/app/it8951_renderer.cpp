@@ -101,6 +101,7 @@ bool it8951_renderer_is_busy() {
 static const uint16_t IT8951_TCON_SYS_RUN = 0x0001;
 static const uint16_t IT8951_TCON_LD_IMG_AREA = 0x0021;
 static const uint16_t IT8951_TCON_LD_IMG_END = 0x0022;
+static const uint16_t IT8951_USDEF_I80_CMD_VCOM = 0x0039;
 
 static const uint16_t IT8951_ROTATE_0 = 0;
 static const uint16_t IT8951_4BPP = 2;
@@ -109,6 +110,7 @@ static const uint16_t IT8951_LDIMG_B_ENDIAN = 1;
 static const uint32_t kBusyTimeoutUs = 10000000;
 
 static SPISettings it8951_spi_settings(24000000, MSBFIRST, SPI_MODE0);
+static SPISettings it8951_spi_settings_read(1000000, MSBFIRST, SPI_MODE0);
 
 static void it8951_wait_ready(uint16_t busy_time_ms = 1) {
     if (IT8951_BUSY_PIN >= 0) {
@@ -152,11 +154,40 @@ static void it8951_write_data16(uint16_t data) {
     SPI.endTransaction();
 }
 
+static uint16_t it8951_read_data16() {
+    it8951_wait_ready();
+    SPI.beginTransaction(it8951_spi_settings_read);
+    digitalWrite(IT8951_CS_PIN, LOW);
+    it8951_transfer16(0x1000); // preamble for read data
+    it8951_wait_ready();
+    it8951_transfer16(0); // dummy
+    it8951_wait_ready();
+    const uint16_t rv = it8951_transfer16(0);
+    digitalWrite(IT8951_CS_PIN, HIGH);
+    SPI.endTransaction();
+    return rv;
+}
+
 static void it8951_write_command_data16(uint16_t cmd, const uint16_t* data, uint16_t count) {
     it8951_write_command16(cmd);
     for (uint16_t i = 0; i < count; i++) {
         it8951_write_data16(data[i]);
     }
+}
+
+static void it8951_set_vcom(uint16_t vcom) {
+    it8951_write_command16(IT8951_USDEF_I80_CMD_VCOM);
+    it8951_wait_ready();
+    it8951_write_data16(1);
+    it8951_write_data16(vcom);
+    it8951_wait_ready(500);
+}
+
+static uint16_t it8951_get_vcom() {
+    it8951_write_command16(IT8951_USDEF_I80_CMD_VCOM);
+    it8951_wait_ready();
+    it8951_write_data16(0);
+    return it8951_read_data16();
 }
 
 static void it8951_set_partial_area_4bpp(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
@@ -439,7 +470,20 @@ bool it8951_renderer_init() {
         LOGE("EINK", "Init failed (buffers)");
         return false;
     }
+#if defined(IT8951_SCK_PIN) && defined(IT8951_MISO_PIN) && defined(IT8951_MOSI_PIN)
+    SPI.begin(IT8951_SCK_PIN, IT8951_MISO_PIN, IT8951_MOSI_PIN, IT8951_CS_PIN);
+    display.selectSPI(SPI, it8951_spi_settings);
+    LOGI("EINK", "IT8951 SPI pins: SCK=%d MISO=%d MOSI=%d CS=%d",
+         IT8951_SCK_PIN, IT8951_MISO_PIN, IT8951_MOSI_PIN, IT8951_CS_PIN);
+#endif
     display.init(115200);
+#ifdef IT8951_VCOM
+    it8951_set_vcom(IT8951_VCOM);
+    const uint16_t vcom_readback = it8951_get_vcom();
+    LOGI("EINK", "VCOM set to -%.3fV (readback -%.3fV)",
+         (float)IT8951_VCOM / 1000.0f,
+         (float)vcom_readback / 1000.0f);
+#endif
     g_display_ready = true;
     LOGI("EINK", "Init OK");
     return true;
