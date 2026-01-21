@@ -36,6 +36,7 @@ static bool render_g4_path(const String &path) {
     return true;
 }
 
+// If NTP hasn't synced, the epoch is often 1970; use a sane threshold.
 static bool is_time_valid() {
     time_t now = time(nullptr);
     return now >= kValidTimeThreshold;
@@ -55,9 +56,10 @@ static time_t timegm_portable(struct tm *tm) {
     return t;
 }
 
+// Parse UTC timestamps in the filename format YYYYMMDDTHHMMSSZ.
+// Returns false for malformed values so we won't delete valid images by mistake.
 static bool parse_utc_timestamp(const char *ts, time_t *out_epoch) {
     if (!ts || !out_epoch) return false;
-    // Expect YYYYMMDDTHHMMSSZ (16 chars)
     if (strlen(ts) != 16) return false;
     for (int i = 0; i < 16; i++) {
         const char c = ts[i];
@@ -92,6 +94,8 @@ static bool parse_utc_timestamp(const char *ts, time_t *out_epoch) {
     return true;
 }
 
+// Extract the expiry from temp/<EXPIRES_UTC>__<UPLOAD_UTC>__<slug>.g4.
+// We only need the first timestamp for expiry cleanup.
 static bool parse_temp_expiry(const String &name, time_t *out_epoch) {
     if (!out_epoch) return false;
     if (!name.startsWith("temp/")) return false;
@@ -101,6 +105,8 @@ static bool parse_temp_expiry(const String &name, time_t *out_epoch) {
     return parse_utc_timestamp(ts.c_str(), out_epoch);
 }
 
+// Collect .g4 names from a single directory and apply a prefix so the caller
+// receives logical paths like perm/<name> or temp/<name>.
 static bool list_g4_names_in_dir(const char *dir, const char *prefix, std::vector<String> &out) {
     if (!dir) return false;
     if (!SD.exists(dir)) return true;
@@ -177,6 +183,8 @@ static bool select_from_list(
     return pick_sequential_from_list(names, last_name, out);
 }
 
+// Filter temp names, optionally deleting expired files if time is valid.
+// When time is not valid, we skip cleanup and treat all temp files as candidates.
 static bool build_temp_candidates(std::vector<String> &names, bool allow_cleanup, time_t now, std::vector<String> &out) {
     out.clear();
     for (const auto &name : names) {
@@ -221,6 +229,7 @@ bool image_render_service_render_next(SdImageSelectMode mode, uint32_t last_inde
         }
     }
 
+    // Build logical lists from /perm and /temp only (no root fallback).
     std::vector<String> perm_names;
     std::vector<String> temp_names;
     if (!list_g4_names_in_dir("/perm", "perm/", perm_names)) {
@@ -235,6 +244,7 @@ bool image_render_service_render_next(SdImageSelectMode mode, uint32_t last_inde
     sort_names(perm_names);
     sort_names(temp_names);
 
+    // Only delete expired temp files when we have a valid clock.
     const bool can_cleanup = is_time_valid();
     time_t now = 0;
     if (can_cleanup) {
@@ -250,6 +260,7 @@ bool image_render_service_render_next(SdImageSelectMode mode, uint32_t last_inde
         return false;
     }
 
+    // Alternate perm/temp when both are available. If one is empty, always use the other.
     const bool last_was_temp = rtc_image_state_get_last_was_temp();
     bool choose_temp = false;
     if (has_temp && has_perm) {
@@ -296,6 +307,7 @@ bool image_render_service_render_next(SdImageSelectMode mode, uint32_t last_inde
     if (mode == SdImageSelectMode::Sequential) {
         rtc_image_state_set_last_image_name(selected_name.c_str());
     }
+    // Store per-queue last names so sequential mode advances within each queue.
     if (selected_is_temp) {
         rtc_image_state_set_last_temp_name(selected_name.c_str());
     } else {

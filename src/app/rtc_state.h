@@ -12,11 +12,12 @@ void rtc_image_state_set_last_image_index(uint32_t index);
 const char* rtc_image_state_get_last_image_name();
 void rtc_image_state_set_last_image_name(const char *name);
 
-// Separate queues for perm/temp rotation.
+// Separate queues for perm/temp rotation (RTC retained across deep sleep).
 const char* rtc_image_state_get_last_perm_name();
 void rtc_image_state_set_last_perm_name(const char *name);
 const char* rtc_image_state_get_last_temp_name();
 void rtc_image_state_set_last_temp_name(const char *name);
+// Used to alternate between perm and temp when both are available.
 bool rtc_image_state_get_last_was_temp();
 void rtc_image_state_set_last_was_temp(bool was_temp);
 

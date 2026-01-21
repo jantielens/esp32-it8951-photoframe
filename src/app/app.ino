@@ -101,6 +101,8 @@ static bool connect_wifi_sta(const DeviceConfig &config, const char *reason, boo
   return false;
 }
 
+// Best-effort NTP sync used for temp expiry cleanup. If it fails, we continue
+// rendering without deletion.
 static bool sync_time_ntp(bool wifi_connected, bool show_status) {
   if (!wifi_connected) return false;
 
@@ -258,6 +260,7 @@ static void run_always_on(DeviceConfig &config, bool config_loaded) {
   const SdCardPins pins = make_sd_pins();
   portal_controller_start(config, config_loaded, sdSpi, pins, kSdFrequencyHz);
 
+  // Keep time reasonably fresh for temp expiry cleanup while always-on.
   sync_time_ntp(WiFi.status() == WL_CONNECTED, false);
 
   #if HAS_MQTT
@@ -395,11 +398,13 @@ void setup() {
   #endif
       ;
 
+  // Fast-wake path avoids the portal/UI; only connect when needed.
   if (!wifi_connected && needs_wifi) {
     const bool show_status = !fast_wake;
     wifi_connected = connect_wifi_sta(config, "Boot", show_status);
   }
 
+  // Sync time if WiFi is up so temp expiry checks can run this wake.
   sync_time_ntp(wifi_connected, !fast_wake);
 
   bool downloaded = false;
