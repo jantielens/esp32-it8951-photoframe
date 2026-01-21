@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JPG to G4 Upload</title>
+    <style>
+      body { font-family: system-ui, sans-serif; background: #f6f7fb; margin: 0; }
+      .container { max-width: 720px; margin: 40px auto; background: #fff; padding: 24px; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,0.08); }
+      h1 { margin-top: 0; }
+      label { display: block; font-weight: 600; margin-top: 16px; }
+      select, input[type="file"] { width: 100%; margin-top: 6px; padding: 8px; }
+      button { margin-top: 20px; padding: 10px 16px; font-weight: 600; }
+      .message { background: #e6f6ea; color: #1f7a3f; padding: 10px; border-radius: 8px; margin-top: 16px; }
+      .error { background: #fdecea; color: #a12f2f; padding: 10px; border-radius: 8px; margin-top: 16px; }
+      .muted { color: #6b7280; font-size: 0.9rem; }
+      .preview { margin-top: 16px; text-align: center; }
+      .preview img { max-width: 50%; border-radius: 8px; border: 1px solid #e5e7eb; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Upload JPG → G4</h1>
+      <p class="muted">User: {{ user or "anonymous" }}</p>
+
+      <div id="error" class="error" style="display: none;"></div>
+      <div id="message" class="message" style="display: none;"></div>
+
+      {% if devices and devices|length > 0 %}
+        <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data">
+          <label for="device_id">Device</label>
+          <select id="device_id" name="device_id" required>
+            {% for d in devices %}
+              <option value="{{ d.id }}">{{ d.id }}</option>
+            {% endfor %}
+          </select>
+
+          <label for="file">JPG file</label>
+          <input id="file" name="file" type="file" accept=".jpg,.jpeg,image/jpeg" required />
+
+          <label for="progress">Progress</label>
+          <progress id="progress" value="0" max="100" style="width: 100%;"></progress>
+          <div id="status" class="muted" style="margin-top: 6px;">Idle</div>
+
+          <button type="submit">Upload</button>
+
+          <div id="preview" class="preview" style="display: none;">
+            <img id="preview-img" alt="Uploaded preview" />
+          </div>
+        </form>
+      {% endif %}
+    </div>
+    <script>
+      const form = document.getElementById('upload-form');
+      const progress = document.getElementById('progress');
+      const statusLabel = document.getElementById('status');
+      const errorBox = document.getElementById('error');
+      const messageBox = document.getElementById('message');
+      const fileInput = document.getElementById('file');
+      const preview = document.getElementById('preview');
+      const previewImg = document.getElementById('preview-img');
+
+      function resetMessages() {
+        errorBox.style.display = 'none';
+        messageBox.style.display = 'none';
+        errorBox.textContent = '';
+        messageBox.textContent = '';
+      }
+
+      if (form) {
+        form.addEventListener('submit', (event) => {
+          event.preventDefault();
+          resetMessages();
+
+          const formData = new FormData(form);
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/upload');
+          xhr.responseType = 'json';
+
+          progress.value = 0;
+          statusLabel.textContent = 'Uploading...';
+
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              const percent = Math.round((e.loaded / e.total) * 100);
+              progress.value = percent;
+            }
+          };
+
+          xhr.upload.onloadend = () => {
+            progress.value = 100;
+            statusLabel.textContent = 'Converting + uploading...';
+          };
+
+          xhr.onerror = () => {
+            statusLabel.textContent = 'Failed';
+            errorBox.textContent = 'Network error during upload.';
+            errorBox.style.display = 'block';
+          };
+
+          xhr.onload = () => {
+            const data = xhr.response || {};
+            if (xhr.status >= 200 && xhr.status < 300 && data.status === 'ok') {
+              statusLabel.textContent = 'Done';
+              if (fileInput.files && fileInput.files[0]) {
+                const objectUrl = URL.createObjectURL(fileInput.files[0]);
+                previewImg.src = objectUrl;
+                preview.style.display = 'block';
+              }
+              form.reset();
+            } else {
+              statusLabel.textContent = 'Failed';
+              errorBox.textContent = data.error || `Upload failed (status ${xhr.status}).`;
+              errorBox.style.display = 'block';
+            }
+          };
+
+          xhr.send(formData);
+        });
+
+        fileInput.addEventListener('change', () => {
+          if (fileInput.files && fileInput.files[0]) {
+            const objectUrl = URL.createObjectURL(fileInput.files[0]);
+            previewImg.src = objectUrl;
+            preview.style.display = 'block';
+          }
+        });
+      }
+    </script>
+  </body>
+</html>

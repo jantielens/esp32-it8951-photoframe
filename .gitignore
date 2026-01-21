@@ -38,5 +38,14 @@ Thumbs.db
 __pycache__/
 *.pyc
 
+# Web POC local env
+web-poc/.env
+
+# Web POC config with secrets
+web-poc/config.json
+
+# Web POC venv
+web-poc/.venv/
+
 # Repo-local sample workspace (not part of the template firmware)
 /sample/

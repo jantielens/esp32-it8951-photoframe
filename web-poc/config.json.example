@@ -1,0 +1,10 @@
+{
+  "devices": {
+    "device1": {
+      "container_sas_url": "https://<account>.blob.core.windows.net/<container>?<sas>"
+    }
+  },
+  "users": {
+    "dev@example.com": ["device1"]
+  }
+}

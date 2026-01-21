@@ -1,0 +1,10 @@
+title = "gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "azure-sas-url"
+description = "Azure Blob SAS URL"
+regex = '''https://[a-zA-Z0-9.-]+\.blob\.core\.windows\.net/[^\s"']+\?[^\s"']*sig=[^\s"']+'''
+secretGroup = 0
