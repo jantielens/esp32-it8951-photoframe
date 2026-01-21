@@ -2,10 +2,16 @@
 
 #include "log_manager.h"
 
+#include <soc/soc_caps.h>
+#if SOC_TOUCH_SENSOR_SUPPORTED
+#include <driver/touch_pad.h>
+#endif
+
 namespace {
 static int g_button_pin = -1;
 static uint8_t g_button_active_level = LOW;
 static uint32_t g_button_debounce_ms = 30;
+static constexpr float kTouchWakeThresholdRatio = 0.005f;
 
 static bool is_button_pressed() {
     if (g_button_pin < 0) return false;
@@ -71,4 +77,52 @@ void input_manager_poll(InputEvents &events) {
     if (events.button_click) {
         LOGI("Input", "Button click");
     }
+}
+
+void input_manager_enable_touch_wakeup(uint8_t touch_gpio, const TouchWakeConfig &config) {
+#if SOC_TOUCH_SENSOR_SUPPORTED
+    if (touch_gpio >= SOC_TOUCH_SENSOR_NUM) {
+        LOGW("Input", "Touch wake not configured: GPIO%u out of range (max %u)",
+             (unsigned)touch_gpio, (unsigned)SOC_TOUCH_SENSOR_NUM);
+        return;
+    }
+
+    const touch_pad_t touch_pad = static_cast<touch_pad_t>(touch_gpio);
+    touch_pad_init();
+    touch_pad_config(touch_pad);
+    touch_pad_set_fsm_mode(TOUCH_FSM_MODE_TIMER);
+    touch_pad_fsm_start();
+
+    uint32_t min_sample = 0;
+    const uint8_t total_samples = config.samples > 0 ? config.samples : 1;
+    const uint8_t discard = (config.discard_first >= total_samples) ? (total_samples - 1) : config.discard_first;
+
+    for (uint8_t i = 0; i < total_samples; i++) {
+        uint32_t sample = 0;
+        if (touch_pad_read_raw_data(touch_pad, &sample) == ESP_OK) {
+            if (i >= discard) {
+                if (min_sample == 0 || sample < min_sample) {
+                    min_sample = sample;
+                }
+            }
+        }
+        delay(config.sample_delay_ms);
+    }
+
+    const uint32_t baseline = min_sample;
+    const float ratio = config.threshold_percent ? (config.threshold_percent / 100.0f) : kTouchWakeThresholdRatio;
+    uint32_t threshold = baseline + (uint32_t)(baseline * ratio);
+    if (threshold <= baseline) {
+        threshold = baseline + 1;
+    }
+
+    touch_pad_set_thresh(touch_pad, threshold);
+    esp_sleep_enable_touchpad_wakeup();
+    LOGI("Input", "Touch wake enabled on GPIO%u (baseline=%u threshold=%u)",
+         (unsigned)touch_gpio, (unsigned)baseline, (unsigned)threshold);
+#else
+    (void)touch_gpio;
+    (void)config;
+    LOGW("Input", "Touch wake not supported on this target");
+#endif
 }

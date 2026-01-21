@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""Sync JPG images to device SD as .g4 files via REST API."""
+"""Convert JPG images to .g4 and upload to an Azure Blob container via SAS."""
 
 import argparse
-import base64
-import mimetypes
 import os
 import sys
-import time
-from io import BytesIO
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable
 from urllib import request, parse, error
 
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
@@ -158,73 +154,20 @@ def make_g4_name(src: Path, variant: str) -> str:
     return f"{src.stem}{suffix}.g4"
 
 
-def build_auth_header(auth: Optional[str]) -> dict:
-    if not auth:
-        return {}
-    token = base64.b64encode(auth.encode("utf-8")).decode("ascii")
-    return {"Authorization": f"Basic {token}"}
+def build_blob_url(container_sas_url: str, blob_name: str) -> str:
+    base, _, token = container_sas_url.partition("?")
+    if not token:
+        raise ValueError("SAS URL must include a query string token")
+    container = base.rstrip("/")
+    blob_path = parse.quote(blob_name, safe="/")
+    return f"{container}/{blob_path}?{token}"
 
 
-def request_json(url: str, method: str = "GET", data: Optional[bytes] = None, headers: Optional[dict] = None):
-    req = request.Request(url, method=method, data=data)
-    for k, v in (headers or {}).items():
-        req.add_header(k, v)
-    try:
-        with request.urlopen(req, timeout=60) as resp:
-            body = resp.read()
-            return resp.status, body
-    except error.HTTPError as e:
-        return e.code, e.read()
-
-
-def parse_job_id(body: bytes) -> Optional[int]:
-    try:
-        import json
-        payload = json.loads(body.decode("utf-8"))
-        job_id = payload.get("job_id")
-        if isinstance(job_id, int):
-            return job_id
-    except Exception:
-        return None
-    return None
-
-
-def wait_job(device: str, job_id: int, headers: Optional[dict] = None, timeout_s: int = 120):
-    start = time.time()
-    while time.time() - start < timeout_s:
-        status, body = request_json(f"{device}/api/sd/jobs?{parse.urlencode({'id': job_id})}", headers=headers)
-        if status != 200:
-            return status, body
-        try:
-            import json
-            payload = json.loads(body.decode("utf-8"))
-            state = payload.get("state")
-            if state == "done":
-                return 200, body
-            if state == "error":
-                return 500, body
-        except Exception:
-            return 500, body
-        time.sleep(0.5)
-    return 504, b"{\"success\":false,\"message\":\"Job timeout\"}"
-
-
-def request_multipart(url: str, field: str, filename: str, payload: bytes, headers: Optional[dict] = None):
-    boundary = "----esp32photoframeboundary"
-    content_type = f"multipart/form-data; boundary={boundary}"
-    body = BytesIO()
-    body.write(f"--{boundary}\r\n".encode("utf-8"))
-    body.write(f"Content-Disposition: form-data; name=\"{field}\"; filename=\"{filename}\"\r\n".encode("utf-8"))
-    body.write(f"Content-Type: {mimetypes.guess_type(filename)[0] or 'application/octet-stream'}\r\n\r\n".encode("utf-8"))
-    body.write(payload)
-    body.write(f"\r\n--{boundary}--\r\n".encode("utf-8"))
-    data = body.getvalue()
-
-    req = request.Request(url, method="POST", data=data)
+def upload_blob(url: str, payload: bytes, content_type: str = "application/octet-stream"):
+    req = request.Request(url, method="PUT", data=payload)
+    req.add_header("x-ms-blob-type", "BlockBlob")
     req.add_header("Content-Type", content_type)
-    req.add_header("Content-Length", str(len(data)))
-    for k, v in (headers or {}).items():
-        req.add_header(k, v)
+    req.add_header("Content-Length", str(len(payload)))
     try:
         with request.urlopen(req, timeout=120) as resp:
             return resp.status, resp.read()
@@ -232,112 +175,40 @@ def request_multipart(url: str, field: str, filename: str, payload: bytes, heade
         return e.code, e.read()
 
 
-def upload_with_retry(url: str, filename: str, payload: bytes, headers: Optional[dict] = None,
-                      retries: int = 3, delay_s: float = 1.0):
-    for attempt in range(retries + 1):
-        status, body = request_multipart(url, "file", filename, payload, headers=headers)
-        if status == 202:
-            return status, body
-        if status >= 500 and attempt < retries:
-            time.sleep(delay_s)
-            continue
-        return status, body
-    return status, body
-
-
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Sync JPGs to device SD as .g4")
+    parser = argparse.ArgumentParser(description="Convert JPGs to .g4 and upload to Azure Blob Storage")
     parser.add_argument("input", nargs="+", help="Input file(s) or folder(s)")
-    parser.add_argument("--device", required=True, help="Device base URL (e.g. http://esp32.local)")
+    parser.add_argument("--sas-url", required=True, help="Azure Blob container SAS URL")
     parser.add_argument("--variant", choices=["base", "opt", "opt-bayer", "opt-fs"], default="opt-bayer")
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH)
     parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
-    parser.add_argument("--auth", default=None, help="Basic auth user:pass")
+    parser.add_argument("--prefix", default="", help="Optional blob prefix (e.g. 'photos/')")
     args = parser.parse_args()
 
-    device = args.device.rstrip("/")
-    auth_header = build_auth_header(args.auth)
+    container_sas_url = args.sas_url
+    prefix = args.prefix.lstrip("/")
 
-    # Pause rendering
-    pause_status, _ = request_json(f"{device}/api/render/pause", method="POST", headers=auth_header)
-    if pause_status not in (200, 204):
-        print(f"Failed to pause rendering (status {pause_status})")
+    inputs = [Path(p).expanduser().resolve() for p in args.input]
+    files = list(iter_images(inputs))
+    if not files:
+        print("No JPG files found.")
         return 1
 
-    try:
-        # Delete existing .g4 files
-        status, body = request_json(f"{device}/api/sd/images", method="GET", headers=auth_header)
-        if status != 202:
-            print(f"Failed to queue list images (status {status}): {body.decode(errors='ignore')}")
+    for src in files:
+        if src.suffix.lower() not in (".jpg", ".jpeg"):
+            continue
+        g4_name = make_g4_name(src, args.variant)
+        if prefix:
+            blob_name = f"{prefix.rstrip('/')}/{g4_name}"
+        else:
+            blob_name = g4_name
+        payload = convert_jpg_to_g4(src, args.width, args.height, args.variant)
+        blob_url = build_blob_url(container_sas_url, blob_name)
+        status, body = upload_blob(blob_url, payload, content_type="application/octet-stream")
+        if status not in (200, 201):
+            print(f"Upload failed for {blob_name} (status {status}): {body.decode(errors='ignore')}")
             return 1
-        job_id = parse_job_id(body)
-        if not job_id:
-            print("Failed to parse list job id")
-            return 1
-        status, body = wait_job(device, job_id, headers=auth_header, timeout_s=120)
-        if status != 200:
-            print(f"Failed to list images (status {status}): {body.decode(errors='ignore')}")
-            return 1
-        data = body.decode("utf-8")
-        names = []
-        try:
-            import json
-            parsed = json.loads(data)
-            names = parsed.get("files", [])
-        except Exception as exc:
-            print(f"Failed to parse image list: {exc}")
-            return 1
-
-        for name in names:
-            del_status, del_body = request_json(
-                f"{device}/api/sd/images?{parse.urlencode({'name': name})}",
-                method="DELETE",
-                headers=auth_header,
-            )
-            if del_status != 202:
-                print(f"Delete queue failed for {name} (status {del_status}): {del_body.decode(errors='ignore')}")
-                return 1
-            del_job_id = parse_job_id(del_body)
-            if not del_job_id:
-                print(f"Delete job id missing for {name}")
-                return 1
-            del_status, del_body = wait_job(device, del_job_id, headers=auth_header, timeout_s=120)
-            if del_status != 200:
-                print(f"Delete failed for {name} (status {del_status}): {del_body.decode(errors='ignore')}")
-                return 1
-
-        # Convert and upload
-        inputs = [Path(p).expanduser().resolve() for p in args.input]
-        files = list(iter_images(inputs))
-        if not files:
-            print("No JPG files found.")
-            return 1
-
-        for src in files:
-            if src.suffix.lower() not in (".jpg", ".jpeg"):
-                continue
-            g4_name = make_g4_name(src, args.variant)
-            payload = convert_jpg_to_g4(src, args.width, args.height, args.variant)
-            up_status, up_body = upload_with_retry(
-                f"{device}/api/sd/images",
-                g4_name,
-                payload,
-                headers=auth_header,
-            )
-            if up_status != 202:
-                print(f"Upload failed for {g4_name} (status {up_status}): {up_body.decode(errors='ignore')}")
-                return 1
-            up_job_id = parse_job_id(up_body)
-            if not up_job_id:
-                print(f"Upload job id missing for {g4_name}")
-                return 1
-            done_status, done_body = wait_job(device, up_job_id, headers=auth_header, timeout_s=240)
-            if done_status != 200:
-                print(f"Upload failed for {g4_name} (status {done_status}): {done_body.decode(errors='ignore')}")
-                return 1
-            print(f"Uploaded {g4_name} ({len(payload)} bytes)")
-    finally:
-        request_json(f"{device}/api/render/resume", method="POST", headers=auth_header)
+        print(f"Uploaded {blob_name} ({len(payload)} bytes)")
 
     return 0
 
