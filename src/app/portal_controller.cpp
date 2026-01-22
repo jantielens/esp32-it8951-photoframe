@@ -120,6 +120,15 @@ static void wifi_stack_quick_reset(bool robust) {
     WiFi.setAutoReconnect(true);
 }
 
+static void wifi_stack_prepare_for_connect() {
+    // These are also applied in wifi_stack_quick_reset(), but for SleepCycle we
+    // want the "fast path" to have the same sane defaults without having to
+    // toggle the radio off/on.
+    WiFi.persistent(false);
+    WiFi.setSleep(false);
+    WiFi.setAutoReconnect(true);
+}
+
 static bool select_strongest_ap_scan(const char *target_ssid, uint8_t out_bssid[6], uint8_t *out_channel, int8_t *out_rssi) {
     if (!target_ssid || strlen(target_ssid) == 0) return false;
     WiFi.scanDelete();
@@ -168,6 +177,10 @@ struct WifiConnectOpts {
     bool allow_scan = false;
     bool allow_reset_escalation = false;
     uint32_t budget_ms = 6000;
+    // If true, allow a single WiFi reset when we appear stuck in WL_IDLE_STATUS.
+    bool allow_idle_stall_reset = false;
+    // Minimum time to wait after WiFi.begin() before treating WL_IDLE_STATUS as a stall.
+    uint32_t idle_stall_reset_after_ms = 3500;
 };
 
 static bool wifi_connect_internal(const DeviceConfig &config, const WifiConnectOpts &opts) {
@@ -182,6 +195,7 @@ static bool wifi_connect_internal(const DeviceConfig &config, const WifiConnectO
     }
 
     WiFi.mode(WIFI_STA);
+    wifi_stack_prepare_for_connect();
     wifi_set_hostname_from_config(config);
 
     const bool wants_static = (strlen(config.fixed_ip) > 0);
@@ -224,63 +238,63 @@ static bool wifi_connect_internal(const DeviceConfig &config, const WifiConnectO
         WiFi.begin(config.wifi_ssid, config.wifi_password);
     }
 
-    const uint32_t attempt_windows_ms[] = { 1200, 2000, 3000 };
-    const size_t attempt_count = sizeof(attempt_windows_ms) / sizeof(attempt_windows_ms[0]);
+    const unsigned long deadline_ms = start_ms + opts.budget_ms;
     bool did_reset = false;
+    unsigned long begin_ms = millis();
+    wl_status_t last_status = WiFi.status();
+    unsigned long last_status_log_ms = 0;
 
-    for (size_t i = 0; i < attempt_count; i++) {
-        const unsigned long now_ms = millis();
-        const unsigned long elapsed = now_ms - start_ms;
-        if (elapsed >= opts.budget_ms) break;
-
-        const uint32_t remaining = opts.budget_ms - (uint32_t)elapsed;
-        const uint32_t window = (attempt_windows_ms[i] < remaining) ? attempt_windows_ms[i] : remaining;
-
-        const unsigned long attempt_start = millis();
-        while ((millis() - attempt_start) < window) {
-            if (WiFi.status() == WL_CONNECTED) {
-                const uint8_t *conn_bssid = WiFi.BSSID();
-                const uint8_t conn_channel = (uint8_t)WiFi.channel();
-                const int8_t conn_rssi = (int8_t)WiFi.RSSI();
-                if (conn_bssid && conn_channel > 0) {
-                    rtc_wifi_state_set_best_ap(config.wifi_ssid, conn_bssid, conn_channel, conn_rssi);
-                }
-
-                if (opts.show_status) {
-                    String status = "WiFi connected: ";
-                    status += WiFi.localIP().toString();
-                    display_manager_set_splash_status(status.c_str());
-                    display_manager_render_now();
-                }
-
-                char conn_bssid_str[18];
-                format_bssid(conn_bssid, conn_bssid_str, sizeof(conn_bssid_str));
-                LOGI("WiFi", "%s: connected %s rssi=%d bssid=%s ch=%u",
-                    opts.reason ? opts.reason : "WiFi",
-                    WiFi.localIP().toString().c_str(),
-                    (int)WiFi.RSSI(),
-                    conn_bssid_str,
-                    (unsigned)WiFi.channel());
-                return true;
+    while (millis() < deadline_ms) {
+        if (WiFi.status() == WL_CONNECTED) {
+            const uint8_t *conn_bssid = WiFi.BSSID();
+            const uint8_t conn_channel = (uint8_t)WiFi.channel();
+            const int8_t conn_rssi = (int8_t)WiFi.RSSI();
+            if (conn_bssid && conn_channel > 0) {
+                rtc_wifi_state_set_best_ap(config.wifi_ssid, conn_bssid, conn_channel, conn_rssi);
             }
-            delay(50);
+
+            if (opts.show_status) {
+                String status = "WiFi connected: ";
+                status += WiFi.localIP().toString();
+                display_manager_set_splash_status(status.c_str());
+                display_manager_render_now();
+            }
+
+            char conn_bssid_str[18];
+            format_bssid(conn_bssid, conn_bssid_str, sizeof(conn_bssid_str));
+            LOGI("WiFi", "%s: connected %s rssi=%d bssid=%s ch=%u",
+                opts.reason ? opts.reason : "WiFi",
+                WiFi.localIP().toString().c_str(),
+                (int)WiFi.RSSI(),
+                conn_bssid_str,
+                (unsigned)WiFi.channel());
+            return true;
         }
 
+        const unsigned long now_ms = millis();
         const wl_status_t st = WiFi.status();
-        LOGW("WiFi", "%s: attempt %u/%u failed (%s/%d)",
-            opts.reason ? opts.reason : "WiFi",
-            (unsigned)(i + 1),
-            (unsigned)attempt_count,
-            wl_status_str(st),
-            (int)st);
+        if (st != last_status || last_status_log_ms == 0 || (now_ms - last_status_log_ms) >= 1000) {
+            LOGI("WiFi", "%s: status %s/%d", opts.reason ? opts.reason : "WiFi", wl_status_str(st), (int)st);
+            last_status = st;
+            last_status_log_ms = now_ms;
+        }
 
         if (opts.allow_reset_escalation && !did_reset) {
-            const unsigned long after_attempt_elapsed = millis() - start_ms;
-            if (after_attempt_elapsed + 500 < opts.budget_ms) {
-                LOGW("WiFi", "%s: escalating to WiFi reset", opts.reason ? opts.reason : "WiFi");
+            const unsigned long elapsed_since_begin = now_ms - begin_ms;
+            const unsigned long remaining = (deadline_ms > now_ms) ? (deadline_ms - now_ms) : 0;
+
+            const bool is_hard_fail = (st == WL_CONNECT_FAILED || st == WL_NO_SSID_AVAIL);
+            const bool is_idle_stall = (opts.allow_idle_stall_reset && st == WL_IDLE_STATUS && elapsed_since_begin >= opts.idle_stall_reset_after_ms);
+
+            if ((is_hard_fail || is_idle_stall) && remaining > 1500) {
+                LOGW("WiFi", "%s: escalating to WiFi reset (%s)",
+                    opts.reason ? opts.reason : "WiFi",
+                    is_hard_fail ? "hard-fail" : "idle-stall");
                 wifi_stack_quick_reset(/*robust=*/false);
+                wifi_stack_prepare_for_connect();
                 did_reset = true;
-                // Re-start connect (re-using RTC hint if present).
+                begin_ms = millis();
+
                 if (have_hint) {
                     WiFi.begin(config.wifi_ssid, config.wifi_password, channel, bssid);
                 } else {
@@ -288,35 +302,20 @@ static bool wifi_connect_internal(const DeviceConfig &config, const WifiConnectO
                 }
             }
         }
+
+        delay(50);
     }
 
     const wl_status_t final_status = WiFi.status();
-    LOGW("WiFi", "%s: connect failed (%s/%d)",
+    LOGW("WiFi", "%s: connect timeout (%s/%d)",
         opts.reason ? opts.reason : "WiFi",
         wl_status_str(final_status),
         (int)final_status);
-
-    if (opts.show_status) {
-        display_manager_set_splash_status("WiFi connect failed");
-        display_manager_render_now();
-    }
-
     return false;
+
 }
 
-static void start_mdns_simple(const DeviceConfig &config) {
-    char sanitized[CONFIG_DEVICE_NAME_MAX_LEN];
-    config_manager_sanitize_device_name(config.device_name, sanitized, sizeof(sanitized));
-    if (strlen(sanitized) == 0) return;
-
-    if (MDNS.begin(sanitized)) {
-        MDNS.addService("http", "tcp", 80);
-        LOGI("mDNS", "Name: %s.local", sanitized);
-    } else {
-        LOGW("mDNS", "Start failed");
-    }
-}
-}
+} // namespace
 
 bool wifi_connect_fast_sleepcycle(const DeviceConfig &config, const char *reason, uint32_t budget_ms, bool show_status) {
     WifiConnectOpts opts;
@@ -324,6 +323,8 @@ bool wifi_connect_fast_sleepcycle(const DeviceConfig &config, const char *reason
     opts.show_status = show_status;
     opts.allow_scan = false;
     opts.allow_reset_escalation = true;
+    opts.allow_idle_stall_reset = true;
+    opts.idle_stall_reset_after_ms = (budget_ms >= 4500) ? 3500 : (budget_ms / 2);
     opts.budget_ms = budget_ms;
     return wifi_connect_internal(config, opts);
 }
@@ -334,12 +335,30 @@ bool wifi_connect_robust_portal(const DeviceConfig &config, const char *reason, 
     opts.show_status = show_status;
     opts.allow_scan = true;
     opts.allow_reset_escalation = true;
+    // In portal mode we allow scan + longer budget; idle is normal while connecting.
+    opts.allow_idle_stall_reset = false;
     opts.budget_ms = 15000;
     return wifi_connect_internal(config, opts);
 }
 
 void wifi_start_mdns(const DeviceConfig &config) {
-    start_mdns_simple(config);
+    char sanitized[CONFIG_DEVICE_NAME_MAX_LEN];
+    config_manager_sanitize_device_name(config.device_name, sanitized, sizeof(sanitized));
+    if (strlen(sanitized) == 0) {
+        LOGW("mDNS", "No device name set; skipping mDNS");
+        return;
+    }
+
+    // Keep it simple and resilient: restarting mDNS is cheap and avoids
+    // "already started" edge cases.
+    MDNS.end();
+    if (!MDNS.begin(sanitized)) {
+        LOGW("mDNS", "Failed to start (%s.local)", sanitized);
+        return;
+    }
+
+    MDNS.addService("http", "tcp", 80);
+    LOGI("mDNS", "Started %s.local", sanitized);
 }
 
 void portal_controller_start(DeviceConfig &config, bool config_loaded, SPIClass &spi, const SdCardPins &pins, uint32_t frequency_hz) {
