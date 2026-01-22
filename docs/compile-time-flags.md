@@ -21,7 +21,7 @@ This document is a template. Sections marked with `COMPILE_FLAG_REPORT` markers 
 ## Flags (generated)
 
 <!-- BEGIN COMPILE_FLAG_REPORT:FLAGS -->
-Total flags: 38
+Total flags: 40
 
 ### Features (HAS_*)
 
@@ -43,6 +43,7 @@ Total flags: 38
 ### Hardware (Pins)
 
 - **BUTTON_PIN** default: `(no default)` — Button (wakeup + long press)
+- **DISPLAY_POWER_EN_PIN** default: `(no default)` — Uses an RTC-capable GPIO so we can hold it LOW in deep sleep.
 - **IT8951_BUSY_PIN** default: `(no default)` — IT8951 busy pin.
 - **IT8951_CS_PIN** default: `(no default)` — IT8951 chip select (CS).
 - **IT8951_DC_PIN** default: `(no default)` — IT8951 data/command pin (not present on this breakout).
@@ -56,6 +57,7 @@ Total flags: 38
 - **SD_MOSI_PIN** default: `(no default)` — SD card MOSI pin.
 - **SD_POWER_PIN** default: `(no default)` — SD card power enable pin (HIGH = on).
 - **SD_SCK_PIN** default: `(no default)` — SD card clock (SCK) pin.
+- **WAKE_BUTTON2_PIN** default: `(no default)` — RTC-capable on ESP32-S2 (0-21).
 
 ### Limits & Tuning
 
@@ -181,6 +183,8 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/board_config.h
 - **TFT_BACKLIGHT_PWM_CHANNEL**
   - src/app/board_config.h
+- **WAKE_BUTTON2_PIN**
+  - src/app/app.ino
 - **WEB_PORTAL_CONFIG_BODY_TIMEOUT_MS**
   - src/app/board_config.h
 - **WEB_PORTAL_CONFIG_MAX_JSON_BYTES**

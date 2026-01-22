@@ -32,6 +32,10 @@
 // ---------------------------------------------------------------------------
 // IT8951 E-Ink (from /sample)
 // ---------------------------------------------------------------------------
+// Display power enable (MiniBoost EN) - HIGH = on.
+// Uses an RTC-capable GPIO so we can hold it LOW in deep sleep.
+#define DISPLAY_POWER_EN_PIN 16
+
 // IT8951 chip select (CS).
 #define IT8951_CS_PIN 34
 // IT8951 SPI MOSI pin.
@@ -63,5 +67,10 @@
 // Button (wakeup + long press)
 // ---------------------------------------------------------------------------
 #define BUTTON_PIN 21
+
+// Optional second wakeup button (wake-only).
+// Wire as normally-open to GND, same as BUTTON_PIN (active LOW).
+// RTC-capable on ESP32-S2 (0-21).
+#define WAKE_BUTTON2_PIN 17
 
 #endif // BOARD_OVERRIDES_PHOTOFRAME_IT8951_H

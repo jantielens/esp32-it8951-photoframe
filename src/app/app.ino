@@ -5,6 +5,7 @@
 #include "rtc_state.h"
 #include "device_telemetry.h"
 #include "input_manager.h"
+#include "display_power.h"
 #include "blob_pull.h"
 #include "portal_controller.h"
 #include "render_scheduler.h"
@@ -202,13 +203,44 @@ static void enter_deep_sleep(uint32_t sleep_seconds) {
   Serial.flush();
   delay(200);
   LOGI("Sleep", "Entering deep sleep for %lus", (unsigned long)sleep_seconds);
+
+  // Ensure IT8951 SPI/control pins are high-Z before removing the 5V rail.
+  it8951_renderer_prepare_for_power_cut();
+
+  // Keep the IT8951 5V rail disabled during deep sleep.
+  display_power_prepare_for_sleep();
+
   esp_sleep_enable_timer_wakeup(sleep_seconds * 1000000ULL);
+
+  // Wake buttons: support one or more physical buttons using EXT1.
+  // Wiring assumption: button shorts GPIO -> GND when pressed (active LOW).
+  auto prep_wakeup_pin_active_low = [](int pin) {
+    if (pin < 0) return;
+    const gpio_num_t gpio = static_cast<gpio_num_t>(pin);
+    rtc_gpio_deinit(gpio);
+    rtc_gpio_pullup_en(gpio);
+    rtc_gpio_pulldown_dis(gpio);
+  };
+
+  uint64_t ext1_mask = 0;
   if (BUTTON_PIN >= 0) {
-    rtc_gpio_deinit(static_cast<gpio_num_t>(BUTTON_PIN));
-    rtc_gpio_pullup_en(static_cast<gpio_num_t>(BUTTON_PIN));
-    rtc_gpio_pulldown_dis(static_cast<gpio_num_t>(BUTTON_PIN));
-    esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(BUTTON_PIN), kButtonActiveLevel);
+    prep_wakeup_pin_active_low(BUTTON_PIN);
+    ext1_mask |= (1ULL << BUTTON_PIN);
   }
+  #if defined(WAKE_BUTTON2_PIN)
+  if (WAKE_BUTTON2_PIN >= 0) {
+    prep_wakeup_pin_active_low(WAKE_BUTTON2_PIN);
+    ext1_mask |= (1ULL << WAKE_BUTTON2_PIN);
+  }
+  #endif
+
+  if (ext1_mask != 0) {
+    const esp_sleep_ext1_wakeup_mode_t mode = (kButtonActiveLevel == LOW)
+        ? ESP_EXT1_WAKEUP_ANY_LOW
+        : ESP_EXT1_WAKEUP_ANY_HIGH;
+    esp_sleep_enable_ext1_wakeup(ext1_mask, mode);
+  }
+
   TouchWakeConfig touch_config;
   input_manager_enable_touch_wakeup(kTouchGpio, touch_config);
   esp_deep_sleep_start();
@@ -225,6 +257,7 @@ static bool is_fast_wake(const DeviceConfig &config, uint16_t long_press_ms) {
   const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   return (cause == ESP_SLEEP_WAKEUP_TIMER ||
       cause == ESP_SLEEP_WAKEUP_EXT0 ||
+      cause == ESP_SLEEP_WAKEUP_EXT1 ||
       cause == ESP_SLEEP_WAKEUP_TOUCHPAD);
 }
 
@@ -312,6 +345,9 @@ void setup() {
   delay(200);
   LOGI("Boot", "Boot");
   LOGI("Boot", "Wake cause=%d", (int)esp_sleep_get_wakeup_cause());
+
+  // Ensure display boost EN is in a known state early.
+  display_power_init();
 
   input_manager_init(
       BUTTON_PIN,

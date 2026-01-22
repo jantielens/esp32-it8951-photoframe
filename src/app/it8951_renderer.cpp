@@ -1,6 +1,7 @@
 #include "it8951_renderer.h"
 
 #include "board_config.h"
+#include "display_power.h"
 #include "display_manager.h"
 #include "log_manager.h"
 
@@ -504,9 +505,26 @@ static bool render_g4_rows(File &file, uint16_t w, uint16_t h) {
 
 bool it8951_renderer_init() {
     if (g_display_ready) return true;
+
+    // Ensure the IT8951 HAT 5V rail is up before any SPI or reset toggling.
+    display_power_on();
+
     if (!ensure_buffers()) {
         LOGE("EINK", "Init failed (buffers)");
         return false;
+    }
+
+    // Configure basic pin directions to avoid floating control lines.
+    if (IT8951_CS_PIN >= 0) {
+        pinMode(IT8951_CS_PIN, OUTPUT);
+        digitalWrite(IT8951_CS_PIN, HIGH);
+    }
+    if (IT8951_RST_PIN >= 0) {
+        pinMode(IT8951_RST_PIN, OUTPUT);
+        digitalWrite(IT8951_RST_PIN, HIGH);
+    }
+    if (IT8951_BUSY_PIN >= 0) {
+        pinMode(IT8951_BUSY_PIN, INPUT);
     }
 #if defined(IT8951_SCK_PIN) && defined(IT8951_MISO_PIN) && defined(IT8951_MOSI_PIN)
     SPI.begin(IT8951_SCK_PIN, IT8951_MISO_PIN, IT8951_MOSI_PIN, IT8951_CS_PIN);
@@ -949,9 +967,29 @@ bool it8951_render_g4_region(const uint8_t* g4_region, uint16_t x, uint16_t y,
     return true;
 }
 
+void it8951_renderer_prepare_for_power_cut() {
+    // Avoid back-powering the HAT through SPI/control pins after removing 5V.
+    // Keep this safe even if the display wasn't fully initialized.
+    if (IT8951_CS_PIN >= 0) pinMode(IT8951_CS_PIN, INPUT);
+    #if defined(IT8951_SCK_PIN)
+    if (IT8951_SCK_PIN >= 0) pinMode(IT8951_SCK_PIN, INPUT);
+    #endif
+    #if defined(IT8951_MOSI_PIN)
+    if (IT8951_MOSI_PIN >= 0) pinMode(IT8951_MOSI_PIN, INPUT);
+    #endif
+    #if defined(IT8951_MISO_PIN)
+    if (IT8951_MISO_PIN >= 0) pinMode(IT8951_MISO_PIN, INPUT);
+    #endif
+    if (IT8951_RST_PIN >= 0) pinMode(IT8951_RST_PIN, INPUT);
+}
+
 void it8951_renderer_hibernate() {
     if (!g_display_ready) return;
     display.hibernate();
+
+    it8951_renderer_prepare_for_power_cut();
+
+    display_power_prepare_for_sleep();
 }
 
 bool it8951_render_full_white() {
