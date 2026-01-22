@@ -123,10 +123,13 @@ static bool publish_binary_sensor_config(
     doc["pl_on"] = "ON";
     doc["pl_off"] = "OFF";
 
-    // Availability
-    doc["avty_t"] = "~/availability";
-    doc["pl_avail"] = "online";
-    doc["pl_not_avail"] = "offline";
+    // Sleep-friendly staleness handling:
+    // Keep showing last values while the device is in deep sleep; mark unavailable
+    // if we haven't received a fresh state update within expire_after seconds.
+    const uint32_t expire_after_s = mqtt.haExpireAfterSeconds();
+    if (expire_after_s > 0) {
+        doc["expire_after"] = expire_after_s;
+    }
 
     if (device_class && strlen(device_class) > 0) {
         doc["dev_cla"] = device_class;
@@ -188,10 +191,11 @@ static bool publish_sensor_config(
     doc["stat_t"] = "~/health/state";
     doc["val_tpl"] = value_template;
 
-    // Availability
-    doc["avty_t"] = "~/availability";
-    doc["pl_avail"] = "online";
-    doc["pl_not_avail"] = "offline";
+    // Sleep-friendly staleness handling (see binary_sensor above)
+    const uint32_t expire_after_s = mqtt.haExpireAfterSeconds();
+    if (expire_after_s > 0) {
+        doc["expire_after"] = expire_after_s;
+    }
 
     if (unit_of_measurement && strlen(unit_of_measurement) > 0) {
         doc["unit_of_meas"] = unit_of_measurement;

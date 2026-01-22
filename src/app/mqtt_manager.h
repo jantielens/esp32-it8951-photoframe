@@ -45,6 +45,11 @@ public:
     const char *friendlyName() const { return _friendly_name; }
     const char *sanitizedName() const { return _sanitized_name; }
 
+    // Home Assistant MQTT discovery helper: if non-zero, use this as expire_after.
+    // For sleep-cycle devices this is derived from sleep_timeout_seconds + margin.
+    // For always-on devices this is derived from mqtt_interval_seconds (if enabled).
+    uint32_t haExpireAfterSeconds() const;
+
 private:
     void ensureConnected();
     void publishAvailability(bool online);

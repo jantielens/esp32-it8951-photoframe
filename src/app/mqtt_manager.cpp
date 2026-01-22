@@ -8,7 +8,31 @@
 #include "device_telemetry.h"
 #include "log_manager.h"
 
+static constexpr uint32_t kDefaultSleepSeconds = 60;
+static constexpr uint32_t kHaExpireAfterMarginSeconds = 30;
+
 MqttManager::MqttManager() : _client(_net) {}
+
+uint32_t MqttManager::haExpireAfterSeconds() const {
+    if (!_config) return 0;
+
+    // In always-on mode, avoid expiring entities when we only publish once at boot
+    // (mqtt_interval_seconds == 0). If periodic publishing is enabled, derive the
+    // expire time from that interval.
+    if (_config->always_on) {
+        if (_config->mqtt_interval_seconds == 0) return 0;
+        return (uint32_t)_config->mqtt_interval_seconds + kHaExpireAfterMarginSeconds;
+    }
+
+    // Sleep-cycle mode: publish once per wake, then deep sleep. We want HA to keep
+    // the last values during sleep and only mark entities unavailable if the
+    // device misses a wake/publish (sleep + margin).
+    const uint32_t sleep_seconds = _config->sleep_timeout_seconds > 0
+        ? (uint32_t)_config->sleep_timeout_seconds
+        : kDefaultSleepSeconds;
+
+    return sleep_seconds + kHaExpireAfterMarginSeconds;
+}
 
 void MqttManager::begin(const DeviceConfig *config, const char *friendly_name, const char *sanitized_name) {
     _config = config;

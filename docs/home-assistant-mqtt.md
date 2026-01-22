@@ -35,7 +35,7 @@ Go to the **Network** page and fill in:
 Behavior:
 - If `MQTT Host` is empty: device will not connect.
 - If `MQTT Host` is set:
-  - Device connects and publishes availability + discovery.
+  - Device connects and publishes discovery.
   - Device publishes **one retained** state payload right after connect.
   - If `Publish Interval > 0`: it also republishes state periodically.
 
@@ -44,8 +44,14 @@ Behavior:
 The device derives a **sanitized name** from the configured device name and uses it to build topics.
 
 - Base topic: `devices/<sanitized>`
-- Availability (LWT): `devices/<sanitized>/availability` (retained `online` / `offline`)
 - State (JSON): `devices/<sanitized>/health/state` (retained JSON)
+
+Home Assistant staleness handling:
+- Entities are configured with `expire_after` via discovery.
+- `expire_after` is derived from the device config (sleep timeout / publish interval + margin), so HA keeps showing the last values during deep sleep and only marks entities `unavailable` if the device misses an expected wake/publish.
+
+Note:
+- The firmware may still publish an MQTT availability/LWT topic (`devices/<sanitized>/availability`), but HA entities are not configured to use it (sleep would otherwise mark entities unavailable immediately).
 
 Home Assistant discovery topics:
 - `homeassistant/sensor/<sanitized>/<object_id>/config` (retained)
@@ -69,6 +75,8 @@ The state topic publishes one JSON document that contains multiple fields (examp
 Note:
 - The web API `/api/health` includes additional `mqtt_*` self-report fields for debugging.
 - The MQTT state payload intentionally omits those `mqtt_*` fields; consumers should use the MQTT availability/LWT topic as the source of truth.
+
+With `expire_after` enabled, the staleness/availability in HA is based on the last received state update.
 
 Home Assistant entities use `value_template` to extract a single field, e.g.
 

@@ -66,14 +66,10 @@ static bool blob_pull_pre_enqueue(void *ctx) {
 
 // Best-effort NTP sync used for temp expiry cleanup. If it fails, we continue
 // rendering without deletion.
-static bool sync_time_ntp(bool wifi_connected, bool show_status) {
+static bool sync_time_ntp(bool wifi_connected) {
   if (!wifi_connected) return false;
 
   LOGI("Time", "NTP sync start");
-  if (show_status) {
-    display_manager_set_splash_status("Syncing time...");
-    display_manager_render_now();
-  }
 
   configTime(0, 0, "pool.ntp.org", "time.nist.gov", "time.google.com");
   const unsigned long start = millis();
@@ -88,10 +84,6 @@ static bool sync_time_ntp(bool wifi_connected, bool show_status) {
   }
 
   LOGW("Time", "NTP sync failed (timeout)");
-  if (show_status) {
-    display_manager_set_splash_status("Time sync failed");
-    display_manager_render_now();
-  }
   return false;
 }
 
@@ -270,7 +262,7 @@ static void run_always_on(DeviceConfig &config, bool config_loaded) {
   portal_controller_start(config, config_loaded, sdSpi, kSdPins, kSdFrequencyHz);
 
   // Keep time reasonably fresh for temp expiry cleanup while always-on.
-  sync_time_ntp(WiFi.status() == WL_CONNECTED, false);
+  sync_time_ntp(WiFi.status() == WL_CONNECTED);
 
   #if HAS_MQTT
   mqtt_init_from_config(config);
@@ -331,7 +323,7 @@ static void run_sleep_cycle(const DeviceConfig &config, uint32_t sleep_seconds, 
   }
 
   // Best-effort; used for temp expiry cleanup.
-  sync_time_ntp(wifi_connected, /*show_status=*/false);
+  sync_time_ntp(wifi_connected);
 
   bool downloaded = false;
   if (strlen(config.blob_sas_url) > 0) {
