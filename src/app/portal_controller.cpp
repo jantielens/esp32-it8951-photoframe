@@ -5,9 +5,12 @@
 #include "web_portal_render_control.h"
 #include "log_manager.h"
 #include "display_manager.h"
+#include "rtc_state.h"
 
 #include <WiFi.h>
 #include <ESPmDNS.h>
+#include <lwip/netif.h>
+#include <esp_netif.h>
 
 namespace {
 static bool init_sd_for_portal(SPIClass &spi, const SdCardPins &pins, uint32_t frequency_hz) {
@@ -44,36 +47,260 @@ static bool ensure_sd_ready(SPIClass &spi, const SdCardPins &pins, uint32_t freq
     return true;
 }
 
-static bool connect_wifi_simple(const DeviceConfig &config) {
-    if (strlen(config.wifi_ssid) == 0) return false;
+static const char* wl_status_str(wl_status_t status) {
+    switch (status) {
+        case WL_NO_SSID_AVAIL: return "SSID not found";
+        case WL_CONNECT_FAILED: return "Connect failed";
+        case WL_CONNECTION_LOST: return "Connection lost";
+        case WL_DISCONNECTED: return "Disconnected";
+        case WL_IDLE_STATUS: return "Idle";
+        case WL_SCAN_COMPLETED: return "Scan done";
+        case WL_CONNECTED: return "Connected";
+        default: return "Unknown";
+    }
+}
 
-    LOGI("WiFi", "Connect start (ssid set)");
-    display_manager_set_splash_status("Connecting to WiFi...");
-    display_manager_render_now();
+static void format_bssid(const uint8_t *bssid, char *out, size_t out_len) {
+    if (!out || out_len < 18) return;
+    if (!bssid) {
+        snprintf(out, out_len, "--:--:--:--:--:--");
+        return;
+    }
+    snprintf(out, out_len, "%02X:%02X:%02X:%02X:%02X:%02X",
+        bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
+}
+
+static void wifi_set_hostname_from_config(const DeviceConfig &config) {
+    char sanitized[CONFIG_DEVICE_NAME_MAX_LEN];
+    config_manager_sanitize_device_name(config.device_name, sanitized, sizeof(sanitized));
+    if (strlen(sanitized) == 0) return;
+
+    WiFi.setHostname(sanitized);
+
+    // Also set via esp_netif API for compatibility.
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (netif != NULL) {
+        esp_netif_set_hostname(netif, sanitized);
+    }
+}
+
+static bool wifi_apply_static_ip_if_configured(const DeviceConfig &config) {
+    if (strlen(config.fixed_ip) == 0) return true;
+
+    IPAddress local_ip, gateway, subnet, dns1, dns2;
+
+    if (!local_ip.fromString(config.fixed_ip)) return false;
+    if (!subnet.fromString(config.subnet_mask)) return false;
+    if (!gateway.fromString(config.gateway)) return false;
+
+    if (strlen(config.dns1) > 0) {
+        dns1.fromString(config.dns1);
+    } else {
+        dns1 = gateway;
+    }
+
+    if (strlen(config.dns2) > 0) {
+        dns2.fromString(config.dns2);
+    } else {
+        dns2 = IPAddress(0, 0, 0, 0);
+    }
+
+    return WiFi.config(local_ip, gateway, subnet, dns1, dns2);
+}
+
+static void wifi_stack_quick_reset(bool robust) {
+    WiFi.persistent(false);
+    WiFi.disconnect(true);
+    delay(robust ? 100 : 30);
+    WiFi.mode(WIFI_OFF);
+    delay(robust ? 500 : 150);
     WiFi.mode(WIFI_STA);
-    WiFi.begin(config.wifi_ssid, config.wifi_password);
+    delay(robust ? 100 : 30);
+    WiFi.setSleep(false);
+    WiFi.setAutoReconnect(true);
+}
 
-    for (int attempt = 0; attempt < WIFI_MAX_ATTEMPTS; attempt++) {
-        const unsigned long start = millis();
-        while (millis() - start < 3000) {
-            if (WiFi.status() == WL_CONNECTED) {
-                LOGI("WiFi", "Connected: %s", WiFi.localIP().toString().c_str());
-                String status = "WiFi connected: ";
-                status += WiFi.localIP().toString();
-                display_manager_set_splash_status(status.c_str());
-                display_manager_render_now();
-                return true;
+static bool select_strongest_ap_scan(const char *target_ssid, uint8_t out_bssid[6], uint8_t *out_channel, int8_t *out_rssi) {
+    if (!target_ssid || strlen(target_ssid) == 0) return false;
+    WiFi.scanDelete();
+
+    const int16_t n = WiFi.scanNetworks();
+    if (n <= 0) {
+        WiFi.scanDelete();
+        return false;
+    }
+
+    int best_index = -1;
+    int best_rssi = -1000;
+    for (int i = 0; i < n; i++) {
+        if (WiFi.SSID(i) == target_ssid) {
+            const int rssi = WiFi.RSSI(i);
+            if (best_index < 0 || rssi > best_rssi) {
+                best_index = i;
+                best_rssi = rssi;
             }
-            delay(100);
         }
-        LOGW("WiFi", "Connect attempt %d/%d failed", attempt + 1, WIFI_MAX_ATTEMPTS);
-        char status[64];
-        snprintf(status, sizeof(status), "WiFi failed %d/%d", attempt + 1, WIFI_MAX_ATTEMPTS);
-        display_manager_set_splash_status(status);
+    }
+
+    if (best_index < 0) {
+        WiFi.scanDelete();
+        return false;
+    }
+
+    const uint8_t *best_bssid_ptr = WiFi.BSSID(best_index);
+    const int best_channel = WiFi.channel(best_index);
+    if (!best_bssid_ptr || best_channel <= 0) {
+        WiFi.scanDelete();
+        return false;
+    }
+
+    memcpy(out_bssid, best_bssid_ptr, 6);
+    if (out_channel) *out_channel = (uint8_t)best_channel;
+    if (out_rssi) *out_rssi = (int8_t)best_rssi;
+
+    WiFi.scanDelete();
+    return true;
+}
+
+struct WifiConnectOpts {
+    const char *reason = nullptr;
+    bool show_status = false;
+    bool allow_scan = false;
+    bool allow_reset_escalation = false;
+    uint32_t budget_ms = 6000;
+};
+
+static bool wifi_connect_internal(const DeviceConfig &config, const WifiConnectOpts &opts) {
+    if (strlen(config.wifi_ssid) == 0) return false;
+    if (WiFi.status() == WL_CONNECTED) return true;
+
+    const unsigned long start_ms = millis();
+
+    if (opts.show_status) {
+        display_manager_set_splash_status("Connecting to WiFi...");
         display_manager_render_now();
     }
 
-    LOGW("WiFi", "Connect failed (max attempts)");
+    WiFi.mode(WIFI_STA);
+    wifi_set_hostname_from_config(config);
+
+    const bool wants_static = (strlen(config.fixed_ip) > 0);
+    if (wants_static) {
+        if (!wifi_apply_static_ip_if_configured(config)) {
+            // Invalid static config: fall back to DHCP.
+            LOGW("WiFi", "%s: invalid static IP config; using DHCP", opts.reason ? opts.reason : "WiFi");
+        }
+    }
+
+    uint8_t bssid[6];
+    uint8_t channel = 0;
+    int8_t rssi = -127;
+    bool have_hint = rtc_wifi_state_get_best_ap(config.wifi_ssid, bssid, &channel);
+
+    if (opts.allow_scan) {
+        uint8_t scan_bssid[6];
+        uint8_t scan_channel = 0;
+        int8_t scan_rssi = -127;
+        if (select_strongest_ap_scan(config.wifi_ssid, scan_bssid, &scan_channel, &scan_rssi)) {
+            memcpy(bssid, scan_bssid, 6);
+            channel = scan_channel;
+            rssi = scan_rssi;
+            have_hint = true;
+            rtc_wifi_state_set_best_ap(config.wifi_ssid, bssid, channel, rssi);
+        }
+    }
+
+    char bssid_str[18];
+    format_bssid(have_hint ? bssid : nullptr, bssid_str, sizeof(bssid_str));
+    LOGI("WiFi", "%s: connect start (hint=%s ch=%u static=%s)",
+        opts.reason ? opts.reason : "WiFi",
+        have_hint ? bssid_str : "none",
+        (unsigned)channel,
+        wants_static ? "yes" : "no");
+
+    if (have_hint) {
+        WiFi.begin(config.wifi_ssid, config.wifi_password, channel, bssid);
+    } else {
+        WiFi.begin(config.wifi_ssid, config.wifi_password);
+    }
+
+    const uint32_t attempt_windows_ms[] = { 1200, 2000, 3000 };
+    const size_t attempt_count = sizeof(attempt_windows_ms) / sizeof(attempt_windows_ms[0]);
+    bool did_reset = false;
+
+    for (size_t i = 0; i < attempt_count; i++) {
+        const unsigned long now_ms = millis();
+        const unsigned long elapsed = now_ms - start_ms;
+        if (elapsed >= opts.budget_ms) break;
+
+        const uint32_t remaining = opts.budget_ms - (uint32_t)elapsed;
+        const uint32_t window = (attempt_windows_ms[i] < remaining) ? attempt_windows_ms[i] : remaining;
+
+        const unsigned long attempt_start = millis();
+        while ((millis() - attempt_start) < window) {
+            if (WiFi.status() == WL_CONNECTED) {
+                const uint8_t *conn_bssid = WiFi.BSSID();
+                const uint8_t conn_channel = (uint8_t)WiFi.channel();
+                const int8_t conn_rssi = (int8_t)WiFi.RSSI();
+                if (conn_bssid && conn_channel > 0) {
+                    rtc_wifi_state_set_best_ap(config.wifi_ssid, conn_bssid, conn_channel, conn_rssi);
+                }
+
+                if (opts.show_status) {
+                    String status = "WiFi connected: ";
+                    status += WiFi.localIP().toString();
+                    display_manager_set_splash_status(status.c_str());
+                    display_manager_render_now();
+                }
+
+                char conn_bssid_str[18];
+                format_bssid(conn_bssid, conn_bssid_str, sizeof(conn_bssid_str));
+                LOGI("WiFi", "%s: connected %s rssi=%d bssid=%s ch=%u",
+                    opts.reason ? opts.reason : "WiFi",
+                    WiFi.localIP().toString().c_str(),
+                    (int)WiFi.RSSI(),
+                    conn_bssid_str,
+                    (unsigned)WiFi.channel());
+                return true;
+            }
+            delay(50);
+        }
+
+        const wl_status_t st = WiFi.status();
+        LOGW("WiFi", "%s: attempt %u/%u failed (%s/%d)",
+            opts.reason ? opts.reason : "WiFi",
+            (unsigned)(i + 1),
+            (unsigned)attempt_count,
+            wl_status_str(st),
+            (int)st);
+
+        if (opts.allow_reset_escalation && !did_reset) {
+            const unsigned long after_attempt_elapsed = millis() - start_ms;
+            if (after_attempt_elapsed + 500 < opts.budget_ms) {
+                LOGW("WiFi", "%s: escalating to WiFi reset", opts.reason ? opts.reason : "WiFi");
+                wifi_stack_quick_reset(/*robust=*/false);
+                did_reset = true;
+                // Re-start connect (re-using RTC hint if present).
+                if (have_hint) {
+                    WiFi.begin(config.wifi_ssid, config.wifi_password, channel, bssid);
+                } else {
+                    WiFi.begin(config.wifi_ssid, config.wifi_password);
+                }
+            }
+        }
+    }
+
+    const wl_status_t final_status = WiFi.status();
+    LOGW("WiFi", "%s: connect failed (%s/%d)",
+        opts.reason ? opts.reason : "WiFi",
+        wl_status_str(final_status),
+        (int)final_status);
+
+    if (opts.show_status) {
+        display_manager_set_splash_status("WiFi connect failed");
+        display_manager_render_now();
+    }
+
     return false;
 }
 
@@ -91,6 +318,30 @@ static void start_mdns_simple(const DeviceConfig &config) {
 }
 }
 
+bool wifi_connect_fast_sleepcycle(const DeviceConfig &config, const char *reason, uint32_t budget_ms, bool show_status) {
+    WifiConnectOpts opts;
+    opts.reason = reason;
+    opts.show_status = show_status;
+    opts.allow_scan = false;
+    opts.allow_reset_escalation = true;
+    opts.budget_ms = budget_ms;
+    return wifi_connect_internal(config, opts);
+}
+
+bool wifi_connect_robust_portal(const DeviceConfig &config, const char *reason, bool show_status) {
+    WifiConnectOpts opts;
+    opts.reason = reason;
+    opts.show_status = show_status;
+    opts.allow_scan = true;
+    opts.allow_reset_escalation = true;
+    opts.budget_ms = 15000;
+    return wifi_connect_internal(config, opts);
+}
+
+void wifi_start_mdns(const DeviceConfig &config) {
+    start_mdns_simple(config);
+}
+
 void portal_controller_start(DeviceConfig &config, bool config_loaded, SPIClass &spi, const SdCardPins &pins, uint32_t frequency_hz) {
     LOGI("Portal", "Portal start");
 
@@ -101,8 +352,8 @@ void portal_controller_start(DeviceConfig &config, bool config_loaded, SPIClass 
     if (!config_loaded || strlen(config.wifi_ssid) == 0) {
         LOGI("WiFi", "No config - starting AP mode");
         web_portal_start_ap();
-    } else if (connect_wifi_simple(config)) {
-        start_mdns_simple(config);
+    } else if (wifi_connect_robust_portal(config, "Portal", /*show_status=*/true)) {
+        wifi_start_mdns(config);
     } else {
         LOGW("WiFi", "Connect failed - fallback to AP mode");
         web_portal_start_ap();

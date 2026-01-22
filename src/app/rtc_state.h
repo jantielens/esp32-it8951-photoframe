@@ -25,3 +25,10 @@ void rtc_image_state_set_last_was_temp(bool was_temp);
 const char* rtc_image_state_get_priority_image_name();
 void rtc_image_state_set_priority_image_name(const char *name);
 void rtc_image_state_clear_priority_image_name();
+
+// RTC retained state for WiFi AP hinting (deep sleep persistence).
+// Stores the last known best AP for a given SSID (BSSID + channel).
+void rtc_wifi_state_init();
+bool rtc_wifi_state_get_best_ap(const char *ssid, uint8_t out_bssid[6], uint8_t *out_channel);
+void rtc_wifi_state_set_best_ap(const char *ssid, const uint8_t bssid[6], uint8_t channel, int8_t rssi);
+void rtc_wifi_state_clear();

@@ -63,48 +63,6 @@ static bool blob_pull_pre_enqueue(void *ctx) {
   return blob_pull_download_once(*state->config, *state->spi, state->pins, state->frequency_hz);
 }
 
-static bool connect_wifi_sta(const DeviceConfig &config, const char *reason, bool show_status) {
-  if (strlen(config.wifi_ssid) == 0) return false;
-
-  if (WiFi.status() == WL_CONNECTED) {
-    return true;
-  }
-
-  if (show_status) {
-    display_manager_set_splash_status("Connecting to WiFi...");
-    display_manager_render_now();
-  }
-
-  LOGI("WiFi", "%s: connect start (ssid set)", reason ? reason : "WiFi");
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(config.wifi_ssid, config.wifi_password);
-
-  for (int attempt = 0; attempt < WIFI_MAX_ATTEMPTS; attempt++) {
-    const unsigned long start = millis();
-    while (millis() - start < 3000) {
-      if (WiFi.status() == WL_CONNECTED) {
-        if (show_status) {
-          String status = "WiFi connected: ";
-          status += WiFi.localIP().toString();
-          display_manager_set_splash_status(status.c_str());
-          display_manager_render_now();
-        }
-        LOGI("WiFi", "%s: connected %s", reason ? reason : "WiFi", WiFi.localIP().toString().c_str());
-        return true;
-      }
-      delay(100);
-    }
-    LOGW("WiFi", "%s: connect attempt %d/%d failed", reason ? reason : "WiFi", attempt + 1, WIFI_MAX_ATTEMPTS);
-  }
-
-  LOGW("WiFi", "%s: connect failed (max attempts)", reason ? reason : "WiFi");
-  if (show_status) {
-    display_manager_set_splash_status("WiFi connect failed");
-    display_manager_render_now();
-  }
-  return false;
-}
-
 // Best-effort NTP sync used for temp expiry cleanup. If it fails, we continue
 // rendering without deletion.
 static bool sync_time_ntp(bool wifi_connected, bool show_status) {
@@ -333,7 +291,7 @@ static void run_sleep_cycle(const DeviceConfig &config, uint32_t sleep_seconds, 
       ;
 
   if (!wifi_connected && needs_wifi) {
-    wifi_connected = connect_wifi_sta(config, "Boot", !quiet_ui);
+    wifi_connected = wifi_connect_fast_sleepcycle(config, "Boot", /*budget_ms=*/6000, /*show_status=*/!quiet_ui);
   }
 
   // Best-effort; used for temp expiry cleanup.
