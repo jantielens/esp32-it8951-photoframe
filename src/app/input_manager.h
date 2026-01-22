@@ -16,7 +16,8 @@ struct TouchWakeConfig {
 void input_manager_init(
     int button_pin,
     uint8_t button_active_level,
-    uint32_t button_debounce_ms
+    uint32_t button_debounce_ms,
+    int button2_pin = -1
 );
 
 void input_manager_enable_touch_wakeup(uint8_t touch_gpio, const TouchWakeConfig &config);

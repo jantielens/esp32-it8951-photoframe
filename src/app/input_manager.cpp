@@ -8,19 +8,23 @@
 #endif
 
 namespace {
-static int g_button_pin = -1;
+static int g_button_pins[2] = { -1, -1 };
 static uint8_t g_button_active_level = LOW;
 static uint32_t g_button_debounce_ms = 30;
 static constexpr float kTouchWakeThresholdRatio = 0.005f;
 
 static bool is_button_pressed() {
-    if (g_button_pin < 0) return false;
-    return digitalRead(g_button_pin) == g_button_active_level;
+    for (int i = 0; i < 2; i++) {
+        const int pin = g_button_pins[i];
+        if (pin < 0) continue;
+        if (digitalRead(pin) == g_button_active_level) return true;
+    }
+    return false;
 }
 
 
 static bool poll_button_click() {
-    if (g_button_pin < 0) return false;
+    if (g_button_pins[0] < 0 && g_button_pins[1] < 0) return false;
     static bool last_read = false;
     static bool stable_state = false;
     static unsigned long last_change_ms = 0;
@@ -48,17 +52,22 @@ static bool poll_button_click() {
 void input_manager_init(
     int button_pin,
     uint8_t button_active_level,
-    uint32_t button_debounce_ms
+    uint32_t button_debounce_ms,
+    int button2_pin
 ) {
-    g_button_pin = button_pin;
+    g_button_pins[0] = button_pin;
+    g_button_pins[1] = button2_pin;
     g_button_active_level = button_active_level;
     g_button_debounce_ms = button_debounce_ms;
 
-    if (g_button_pin >= 0) {
-        pinMode(g_button_pin, INPUT_PULLUP);
+    for (int i = 0; i < 2; i++) {
+        const int pin = g_button_pins[i];
+        if (pin >= 0) {
+            pinMode(pin, INPUT_PULLUP);
+        }
     }
 
-    LOGI("Input", "Init button_pin=%d", g_button_pin);
+    LOGI("Input", "Init button_pin=%d button2_pin=%d", g_button_pins[0], g_button_pins[1]);
 }
 
 bool input_manager_check_long_press(uint16_t long_press_ms) {

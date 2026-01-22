@@ -361,10 +361,16 @@ void setup() {
   // Ensure display boost EN is in a known state early.
   display_power_init();
 
+    int wake_button2_pin = -1;
+    #if defined(WAKE_BUTTON2_PIN)
+    wake_button2_pin = WAKE_BUTTON2_PIN;
+    #endif
+
   input_manager_init(
       BUTTON_PIN,
       kButtonActiveLevel,
-      kButtonDebounceMs
+      kButtonDebounceMs,
+      wake_button2_pin
   );
 
   device_telemetry_init();
