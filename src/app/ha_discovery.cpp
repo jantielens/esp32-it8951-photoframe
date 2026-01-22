@@ -35,6 +35,7 @@ void ha_discovery_publish_health(MqttManager &mqtt) {
     // - value_template extracts fields from the JSON payload.
 
     publish_sensor_config(mqtt, "uptime", "Uptime", "{{ value_json.uptime_seconds }}", "s", "duration", "measurement", "diagnostic");
+    publish_sensor_config(mqtt, "cycle_awake", "Cycle Awake", "{{ value_json.cycle_awake_seconds }}", "s", "duration", "measurement", "diagnostic");
     publish_sensor_config(mqtt, "reset_reason", "Reset Reason", "{{ value_json.reset_reason }}", "", "", "", "diagnostic");
 
     publish_sensor_config(mqtt, "cpu_usage", "CPU Usage", "{{ value_json.cpu_usage }}", "%", "", "measurement", "diagnostic");
@@ -43,7 +44,6 @@ void ha_discovery_publish_health(MqttManager &mqtt) {
     publish_sensor_config(mqtt, "heap_free", "Free Heap", "{{ value_json.heap_free }}", "B", "", "measurement", "diagnostic");
     publish_sensor_config(mqtt, "heap_min", "Min Free Heap", "{{ value_json.heap_min }}", "B", "", "measurement", "diagnostic");
     publish_sensor_config(mqtt, "heap_largest", "Largest Heap Block", "{{ value_json.heap_largest }}", "B", "", "measurement", "diagnostic");
-    publish_sensor_config(mqtt, "heap_fragmentation", "Heap Fragmentation", "{{ value_json.heap_fragmentation }}", "%", "", "measurement", "diagnostic");
 
     publish_sensor_config(mqtt, "heap_internal_free", "Internal Heap Free", "{{ value_json.heap_internal_free }}", "B", "", "measurement", "diagnostic");
     publish_sensor_config(mqtt, "heap_internal_min", "Internal Heap Min", "{{ value_json.heap_internal_min }}", "B", "", "measurement", "diagnostic");
@@ -52,7 +52,6 @@ void ha_discovery_publish_health(MqttManager &mqtt) {
     publish_sensor_config(mqtt, "psram_free", "PSRAM Free", "{{ value_json.psram_free }}", "B", "", "measurement", "diagnostic");
     publish_sensor_config(mqtt, "psram_min", "PSRAM Min Free", "{{ value_json.psram_min }}", "B", "", "measurement", "diagnostic");
     publish_sensor_config(mqtt, "psram_largest", "PSRAM Largest Block", "{{ value_json.psram_largest }}", "B", "", "measurement", "diagnostic");
-    publish_sensor_config(mqtt, "psram_fragmentation", "PSRAM Fragmentation", "{{ value_json.psram_fragmentation }}", "%", "", "measurement", "diagnostic");
 
     publish_sensor_config(mqtt, "battery_voltage", "Battery Voltage", "{{ value_json.battery_voltage }}", "V", "voltage", "measurement", "diagnostic");
 
@@ -62,10 +61,6 @@ void ha_discovery_publish_health(MqttManager &mqtt) {
     publish_binary_sensor_config(mqtt, "fs_mounted", "FS Mounted", "{{ 'ON' if value_json.fs_mounted else 'OFF' }}", "", "diagnostic");
     publish_sensor_config(mqtt, "fs_used_bytes", "FS Used", "{{ value_json.fs_used_bytes }}", "B", "", "measurement", "diagnostic");
     publish_sensor_config(mqtt, "fs_total_bytes", "FS Total", "{{ value_json.fs_total_bytes }}", "B", "", "measurement", "diagnostic");
-
-    publish_sensor_config(mqtt, "display_fps", "Display FPS", "{{ value_json.display_fps }}", "fps", "", "measurement", "diagnostic");
-    publish_sensor_config(mqtt, "display_lv_timer_us", "Display LV Timer", "{{ value_json.display_lv_timer_us }}", "us", "", "measurement", "diagnostic");
-    publish_sensor_config(mqtt, "display_present_us", "Display Present", "{{ value_json.display_present_us }}", "us", "", "measurement", "diagnostic");
 
     publish_sensor_config(mqtt, "wifi_rssi", "WiFi RSSI", "{{ value_json.wifi_rssi }}", "dBm", "signal_strength", "measurement", "diagnostic");
 

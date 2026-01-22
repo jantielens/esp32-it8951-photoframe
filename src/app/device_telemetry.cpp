@@ -162,7 +162,20 @@ static bool flash_cache_initialized = false;
 static size_t cached_sketch_size = 0;
 static size_t cached_free_sketch_space = 0;
 
-static void fill_common(JsonDocument &doc, bool include_ip_and_channel, bool include_debug_fields, bool include_mqtt_self_report);
+// Cache WiFi RSSI so a late-cycle snapshot (after WiFi shutdown) can still
+// report the last known RSSI from earlier in the cycle.
+static int g_cached_wifi_rssi = -127;
+static bool g_cached_wifi_rssi_valid = false;
+
+static void fill_common(
+    JsonDocument &doc,
+    bool include_ip_and_channel,
+    bool include_debug_fields,
+    bool include_mqtt_self_report,
+    bool include_fragmentation,
+    bool include_display_perf,
+    bool wifi_rssi_use_cache_when_disconnected
+);
 
 static void fill_health_window_fields(JsonDocument &doc);
 
@@ -482,7 +495,15 @@ void device_telemetry_check_tripwires() {
 }
 
 void device_telemetry_fill_api(JsonDocument &doc) {
-    fill_common(doc, true, true, true);
+    fill_common(
+        doc,
+        /*include_ip_and_channel=*/true,
+        /*include_debug_fields=*/true,
+        /*include_mqtt_self_report=*/true,
+        /*include_fragmentation=*/true,
+        /*include_display_perf=*/true,
+        /*wifi_rssi_use_cache_when_disconnected=*/false
+    );
 
     // Min/max fields sampled by a background timer (multi-client safe).
     // We report a merged snapshot across the last complete window and the current
@@ -515,7 +536,18 @@ void device_telemetry_fill_mqtt(JsonDocument &doc) {
     // MQTT connection/publish status is better represented by availability/LWT,
     // and many consumers can infer publish cadence from broker-side timestamps.
     // Keep mqtt_* fields in /api/health only.
-    fill_common(doc, false, false, false);
+    // MQTT payload: keep a focused set of system/health fields.
+    // We intentionally omit display perf + fragmentation to keep the retained
+    // payload small and stable.
+    fill_common(
+        doc,
+        /*include_ip_and_channel=*/false,
+        /*include_debug_fields=*/false,
+        /*include_mqtt_self_report=*/false,
+        /*include_fragmentation=*/false,
+        /*include_display_perf=*/false,
+        /*wifi_rssi_use_cache_when_disconnected=*/true
+    );
 
     // =====================================================================
     // USER-EXTEND: Add your own sensors to the MQTT state payload
@@ -802,10 +834,24 @@ bool device_telemetry_get_health_window_bands(DeviceHealthWindowBands* out_bands
     return true;
 }
 
-static void fill_common(JsonDocument &doc, bool include_ip_and_channel, bool include_debug_fields, bool include_mqtt_self_report) {
+static void fill_common(
+    JsonDocument &doc,
+    bool include_ip_and_channel,
+    bool include_debug_fields,
+    bool include_mqtt_self_report,
+    bool include_fragmentation,
+    bool include_display_perf,
+    bool wifi_rssi_use_cache_when_disconnected
+) {
     // System
     uint64_t uptime_us = esp_timer_get_time();
     doc["uptime_seconds"] = uptime_us / 1000000;
+
+    // In SleepCycle mode, this approximates how long the device was awake for the cycle.
+    // We keep millisecond precision to make short cycles visible.
+    double cycle_awake_seconds = (double)uptime_us / 1000000.0;
+    cycle_awake_seconds = floor(cycle_awake_seconds * 1000.0 + 0.5) / 1000.0;
+    doc["cycle_awake_seconds"] = cycle_awake_seconds;
 
     // Reset reason
     esp_reset_reason_t reset_reason = esp_reset_reason();
@@ -899,25 +945,27 @@ static void fill_common(JsonDocument &doc, bool include_ip_and_channel, bool inc
     doc["psram_min"] = psram_min;
     doc["psram_largest"] = psram_largest;
 
-    // Heap fragmentation
-    // IMPORTANT: On PSRAM boards, `heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)` can return a PSRAM block,
-    // while `ESP.getFreeHeap()` reports internal heap only. Mixing those yields negative fragmentation.
-    // We define heap fragmentation as INTERNAL heap fragmentation.
-    float heap_frag = 0;
-    if (internal_free > 0 && internal_largest <= internal_free) {
-        heap_frag = (1.0f - ((float)internal_largest / (float)internal_free)) * 100.0f;
-    }
-    if (heap_frag < 0) heap_frag = 0;
-    if (heap_frag > 100) heap_frag = 100;
-    doc["heap_fragmentation"] = (int)heap_frag;
+    if (include_fragmentation) {
+        // Heap fragmentation
+        // IMPORTANT: On PSRAM boards, `heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)` can return a PSRAM block,
+        // while `ESP.getFreeHeap()` reports internal heap only. Mixing those yields negative fragmentation.
+        // We define heap fragmentation as INTERNAL heap fragmentation.
+        float heap_frag = 0;
+        if (internal_free > 0 && internal_largest <= internal_free) {
+            heap_frag = (1.0f - ((float)internal_largest / (float)internal_free)) * 100.0f;
+        }
+        if (heap_frag < 0) heap_frag = 0;
+        if (heap_frag > 100) heap_frag = 100;
+        doc["heap_fragmentation"] = (int)heap_frag;
 
-    float psram_frag = 0;
-    if (psram_free > 0 && psram_largest <= psram_free) {
-        psram_frag = (1.0f - ((float)psram_largest / (float)psram_free)) * 100.0f;
+        float psram_frag = 0;
+        if (psram_free > 0 && psram_largest <= psram_free) {
+            psram_frag = (1.0f - ((float)psram_largest / (float)psram_free)) * 100.0f;
+        }
+        if (psram_frag < 0) psram_frag = 0;
+        if (psram_frag > 100) psram_frag = 100;
+        doc["psram_fragmentation"] = (int)psram_frag;
     }
-    if (psram_frag < 0) psram_frag = 0;
-    if (psram_frag > 100) psram_frag = 100;
-    doc["psram_fragmentation"] = (int)psram_frag;
 
     // Flash usage
     const size_t sketch_size = device_telemetry_sketch_size();
@@ -974,27 +1022,32 @@ static void fill_common(JsonDocument &doc, bool include_ip_and_channel, bool inc
         #endif
     }
 
-    // Display perf (best-effort)
-    if (displayManager) {
-        DisplayPerfStats stats;
-        if (display_manager_get_perf_stats(&stats)) {
-            doc["display_fps"] = stats.fps;
-            doc["display_lv_timer_us"] = stats.lv_timer_us;
-            doc["display_present_us"] = stats.present_us;
+    if (include_display_perf) {
+        // Display perf (best-effort)
+        if (displayManager) {
+            DisplayPerfStats stats;
+            if (display_manager_get_perf_stats(&stats)) {
+                doc["display_fps"] = stats.fps;
+                doc["display_lv_timer_us"] = stats.lv_timer_us;
+                doc["display_present_us"] = stats.present_us;
+            } else {
+                doc["display_fps"] = nullptr;
+                doc["display_lv_timer_us"] = nullptr;
+                doc["display_present_us"] = nullptr;
+            }
         } else {
             doc["display_fps"] = nullptr;
             doc["display_lv_timer_us"] = nullptr;
             doc["display_present_us"] = nullptr;
         }
-    } else {
-        doc["display_fps"] = nullptr;
-        doc["display_lv_timer_us"] = nullptr;
-        doc["display_present_us"] = nullptr;
     }
 
-    // WiFi stats (only if connected)
+    // WiFi stats
     if (WiFi.status() == WL_CONNECTED) {
-        doc["wifi_rssi"] = WiFi.RSSI();
+        const int rssi = WiFi.RSSI();
+        doc["wifi_rssi"] = rssi;
+        g_cached_wifi_rssi = rssi;
+        g_cached_wifi_rssi_valid = true;
 
         if (include_ip_and_channel) {
             doc["wifi_channel"] = WiFi.channel();
@@ -1007,7 +1060,11 @@ static void fill_common(JsonDocument &doc, bool include_ip_and_channel, bool inc
             doc["hostname"] = WiFi.getHostname();
         }
     } else {
-        doc["wifi_rssi"] = nullptr;
+        if (wifi_rssi_use_cache_when_disconnected && g_cached_wifi_rssi_valid) {
+            doc["wifi_rssi"] = g_cached_wifi_rssi;
+        } else {
+            doc["wifi_rssi"] = nullptr;
+        }
 
         if (include_ip_and_channel) {
             doc["wifi_channel"] = nullptr;

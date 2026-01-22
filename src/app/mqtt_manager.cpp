@@ -7,6 +7,9 @@
 #include "ha_discovery.h"
 #include "device_telemetry.h"
 #include "log_manager.h"
+#include "rtc_mqtt_payload.h"
+
+#include <esp_system.h>
 
 static constexpr uint32_t kDefaultSleepSeconds = 60;
 static constexpr uint32_t kHaExpireAfterMarginSeconds = 30;
@@ -56,6 +59,9 @@ void MqttManager::begin(const DeviceConfig *config, const char *friendly_name, c
     _client.setBufferSize(MQTT_MAX_PACKET_SIZE);
 
     _discovery_published_this_boot = false;
+    // HA discovery: publish on "real" boots (power-on / software reset / etc),
+    // but skip deep-sleep wake boots to reduce MQTT chatter in SleepCycle mode.
+    _discovery_allowed_this_boot = (esp_reset_reason() != ESP_RST_DEEPSLEEP);
     _last_reconnect_attempt_ms = 0;
     _last_health_publish_ms = 0;
 }
@@ -120,6 +126,7 @@ void MqttManager::publishAvailability(bool online) {
 
 void MqttManager::publishDiscoveryOncePerBoot() {
     if (_discovery_published_this_boot) return;
+    if (!_discovery_allowed_this_boot) return;
 
     LOGI("MQTT", "Publishing HA discovery");
     ha_discovery_publish_health(*this);
@@ -235,9 +242,28 @@ void MqttManager::ensureConnected() {
         publishAvailability(true);
         publishDiscoveryOncePerBoot();
 
-        // Publish a single retained state after connect so HA entities have values,
-        // even when periodic publishing is disabled (interval = 0).
-        publishHealthNow();
+        // Publish deferred payload (captured at end of previous cycle) if present.
+        bool published_deferred = false;
+        if (rtc_mqtt_payload_has()) {
+            uint8_t payload[MQTT_MAX_PACKET_SIZE];
+            size_t n = 0;
+            if (rtc_mqtt_payload_take(payload, sizeof(payload), &n) && n > 0) {
+                published_deferred = _client.publish(_health_state_topic, payload, (unsigned)n, true);
+                if (published_deferred) {
+                    LOGI("MQTT", "Health publish (deferred) ok (%u bytes)", (unsigned)n);
+                } else {
+                    LOGW("MQTT", "Health publish (deferred) failed");
+                }
+            }
+        }
+
+        // If no deferred payload exists (e.g., first boot), optionally publish a
+        // boot snapshot so HA entities have values.
+        if (!published_deferred) {
+            // First boot (or RTC lost): publish a snapshot so HA users see values.
+            // On subsequent wakes, the deferred payload will be used instead.
+            publishHealthNow();
+        }
 
         // If periodic publishing is enabled, start interval timing from now.
         _last_health_publish_ms = millis();

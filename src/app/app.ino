@@ -13,6 +13,7 @@
 #include "web_portal.h"
 #if HAS_MQTT
 #include "mqtt_manager.h"
+#include "rtc_mqtt_payload.h"
 #endif
 #include "display_manager.h"
 #if HEALTH_HISTORY_ENABLED
@@ -161,6 +162,31 @@ static void mqtt_publish_before_sleep(const DeviceConfig &config, bool wifi_conn
     }
   } else {
     LOGW("MQTT", "Connect timeout before sleep");
+  }
+}
+
+static void mqtt_store_deferred_payload_if_configured(const DeviceConfig &config) {
+  if (strlen(config.mqtt_host) == 0) return;
+
+  StaticJsonDocument<768> doc;
+  device_telemetry_fill_mqtt(doc);
+
+  if (doc.overflowed()) {
+    LOGE("MQTT", "Deferred health JSON overflow (StaticJsonDocument too small)");
+    return;
+  }
+
+  uint8_t payload[MQTT_MAX_PACKET_SIZE];
+  const size_t n = serializeJson(doc, payload, sizeof(payload));
+  if (n == 0 || n >= sizeof(payload)) {
+    LOGE("MQTT", "Deferred health JSON too large for MQTT_MAX_PACKET_SIZE (%u)", (unsigned)sizeof(payload));
+    return;
+  }
+
+  if (rtc_mqtt_payload_store(payload, n)) {
+    LOGI("MQTT", "Stored deferred health payload (%u bytes)", (unsigned)n);
+  } else {
+    LOGW("MQTT", "Failed to store deferred health payload (%u bytes)", (unsigned)n);
   }
 }
 #endif
@@ -349,11 +375,21 @@ static void run_sleep_cycle(const DeviceConfig &config, uint32_t sleep_seconds, 
 
   if (!render_scheduler_render_once(config, sdSpi, kSdPins, kSdFrequencyHz)) {
     LOGW("Mode", "Render once failed; entering deep sleep");
+
+    #if HAS_MQTT
+    mqtt_store_deferred_payload_if_configured(config);
+    #endif
+
     enter_deep_sleep(sleep_seconds);
     return;
   }
 
   it8951_renderer_hibernate();
+
+  #if HAS_MQTT
+  mqtt_store_deferred_payload_if_configured(config);
+  #endif
+
   enter_deep_sleep(sleep_seconds);
 }
 

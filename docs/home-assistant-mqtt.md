@@ -35,9 +35,18 @@ Go to the **Network** page and fill in:
 Behavior:
 - If `MQTT Host` is empty: device will not connect.
 - If `MQTT Host` is set:
-  - Device connects and publishes discovery.
-  - Device publishes **one retained** state payload right after connect.
+  - Device connects and publishes discovery (see note below).
+  - Device publishes **one retained** state payload right after connect (see notes below).
   - If `Publish Interval > 0`: it also republishes state periodically.
+
+Discovery note:
+- Discovery is published **only on non-deep-sleep resets** (power-on, software reset, etc.).
+- In SleepCycle mode (deep sleep wakes), discovery is skipped to reduce MQTT traffic; the retained discovery config published earlier remains valid in Home Assistant.
+
+Sleep-cycle note:
+- In **SleepCycle** mode, the firmware captures the state payload at the end of the cycle (right before deep sleep) and publishes it on the *next* wake.
+- On the very first boot (or if RTC data was lost), the firmware publishes a one-time **boot snapshot** so HA shows values immediately.
+- After that, HA will typically show **previous-cycle** values (no timestamps).
 
 ## Topics
 
@@ -61,20 +70,23 @@ Home Assistant discovery topics:
 
 The state topic publishes one JSON document that contains multiple fields (examples):
 - `uptime_seconds`
+- `cycle_awake_seconds`
 - `reset_reason`
 - `cpu_usage`
 - `cpu_temperature`
-- `heap_free`, `heap_min`, `heap_largest`, `heap_fragmentation`
+- `heap_free`, `heap_min`, `heap_largest`
 - `heap_internal_free`, `heap_internal_min`, `heap_internal_largest`
-- `psram_free`, `psram_min`, `psram_largest`, `psram_fragmentation`
+- `psram_free`, `psram_min`, `psram_largest`
 - `flash_used`, `flash_total`
 - `fs_mounted`, `fs_used_bytes`, `fs_total_bytes`
-- `display_fps`, `display_lv_timer_us`, `display_present_us` (when `HAS_DISPLAY`)
 - `wifi_rssi`
 
 Note:
 - The web API `/api/health` includes additional `mqtt_*` self-report fields for debugging.
-- The MQTT state payload intentionally omits those `mqtt_*` fields; consumers should use the MQTT availability/LWT topic as the source of truth.
+- The MQTT state payload intentionally omits those `mqtt_*` fields.
+
+Additional note:
+- Fragmentation and display performance counters are exposed via the web API (`/api/health`) but are intentionally not included in the MQTT payload.
 
 With `expire_after` enabled, the staleness/availability in HA is based on the last received state update.
 
