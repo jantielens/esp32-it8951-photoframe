@@ -88,7 +88,7 @@ void web_portal_register_routes(AsyncWebServer* server) {
     );
     registerOptions("/api/firmware/update");
 
-#if HAS_DISPLAY && HAS_BACKLIGHT
+#if HAS_BACKLIGHT
     // Display API endpoints
     server->on(
         "/api/display/brightness",

@@ -88,11 +88,7 @@ static void set_render_busy(bool busy) {
 }
 
 static bool is_ui_active() {
-#if HAS_DISPLAY
     return display_manager_ui_is_active();
-#else
-    return false;
-#endif
 }
 
 // GxEPD2 IT8951 API: refresh(bool partial_update_mode = false)

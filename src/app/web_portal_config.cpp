@@ -9,10 +9,7 @@
 #include "log_manager.h"
 #include "psram_json_allocator.h"
 #include "web_portal_json.h"
-
-#if HAS_DISPLAY
 #include "display_manager.h"
-#endif
 
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -421,7 +418,7 @@ void handlePostConfig(AsyncWebServerRequest *request, uint8_t *data, size_t len,
         LOGI("Config", "Backlight brightness set to %d%%", brightness);
 
         // Apply brightness immediately (will also be persisted when config saved)
-        #if HAS_DISPLAY && HAS_BACKLIGHT
+        #if HAS_BACKLIGHT
         display_manager_set_backlight_brightness(brightness);
         #endif
     }

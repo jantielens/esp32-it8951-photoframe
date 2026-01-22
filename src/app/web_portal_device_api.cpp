@@ -17,10 +17,7 @@
 
 #include <ArduinoJson.h>
 #include <WiFi.h>
-
-#if HAS_DISPLAY
 #include "display_manager.h"
-#endif
 
 // GET /api/mode - Return portal mode (core vs full)
 void handleGetMode(AsyncWebServerRequest *request) {
@@ -121,50 +118,46 @@ void handleGetVersion(AsyncWebServerRequest *request) {
     response->print(",\"has_backlight\":");
     response->print(HAS_BACKLIGHT ? "true" : "false");
 
-    #if HAS_DISPLAY
-        // Display screen information
-        response->print(",\"has_display\":true");
+    // Display screen information
+    response->print(",\"has_display\":true");
 
-        // Display resolution (driver coordinate space for direct writes / image upload)
-        int display_coord_width = DISPLAY_WIDTH;
-        int display_coord_height = DISPLAY_HEIGHT;
-        if (displayManager && displayManager->getDriver()) {
-            display_coord_width = displayManager->getDriver()->width();
-            display_coord_height = displayManager->getDriver()->height();
-        }
-        response->print(",\"display_coord_width\":");
-        response->print(display_coord_width);
-        response->print(",\"display_coord_height\":");
-        response->print(display_coord_height);
+    // Display resolution (driver coordinate space for direct writes / image upload)
+    int display_coord_width = DISPLAY_WIDTH;
+    int display_coord_height = DISPLAY_HEIGHT;
+    if (displayManager && displayManager->getDriver()) {
+        display_coord_width = displayManager->getDriver()->width();
+        display_coord_height = displayManager->getDriver()->height();
+    }
+    response->print(",\"display_coord_width\":");
+    response->print(display_coord_width);
+    response->print(",\"display_coord_height\":");
+    response->print(display_coord_height);
 
-        // Get available screens
-        size_t screen_count = 0;
-        const ScreenInfo* screens = display_manager_get_available_screens(&screen_count);
+    // Get available screens
+    size_t screen_count = 0;
+    const ScreenInfo* screens = display_manager_get_available_screens(&screen_count);
 
-        response->print(",\"available_screens\":[");
-        for (size_t i = 0; i < screen_count; i++) {
-            if (i > 0) response->print(",");
-            response->print("{\"id\":\"");
-            response->print(screens[i].id);
-            response->print("\",\"name\":\"");
-            response->print(screens[i].display_name);
-            response->print("\"}");
-        }
-        response->print("]");
+    response->print(",\"available_screens\":[");
+    for (size_t i = 0; i < screen_count; i++) {
+        if (i > 0) response->print(",");
+        response->print("{\"id\":\"");
+        response->print(screens[i].id);
+        response->print("\",\"name\":\"");
+        response->print(screens[i].display_name);
+        response->print("\"}");
+    }
+    response->print("]");
 
-        // Get current screen
-        const char* current_screen = display_manager_get_current_screen_id();
-        response->print(",\"current_screen\":");
-        if (current_screen) {
-            response->print("\"");
-            response->print(current_screen);
-            response->print("\"");
-        } else {
-            response->print("null");
-        }
-    #else
-        response->print(",\"has_display\":false");
-    #endif
+    // Get current screen
+    const char* current_screen = display_manager_get_current_screen_id();
+    response->print(",\"current_screen\":");
+    if (current_screen) {
+        response->print("\"");
+        response->print(current_screen);
+        response->print("\"");
+    } else {
+        response->print("null");
+    }
 
     response->print("}");
     request->send(response);

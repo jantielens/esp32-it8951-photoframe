@@ -1,7 +1,5 @@
 #include "board_config.h"
 
-#if HAS_DISPLAY
-
 #include "display_manager.h"
 #include "log_manager.h"
 #include "project_branding.h"
@@ -214,4 +212,3 @@ bool display_manager_get_perf_stats(DisplayPerfStats* out) {
     return false;
 }
 
-#endif // HAS_DISPLAY

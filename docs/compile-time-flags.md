@@ -21,13 +21,12 @@ This document is a template. Sections marked with `COMPILE_FLAG_REPORT` markers 
 ## Flags (generated)
 
 <!-- BEGIN COMPILE_FLAG_REPORT:FLAGS -->
-Total flags: 40
+Total flags: 39
 
 ### Features (HAS_*)
 
 - **HAS_BACKLIGHT** default: `false` — Enable backlight control (typically via PWM).
 - **HAS_BUILTIN_LED** default: `false` — Enable built-in status LED support.
-- **HAS_DISPLAY** default: `false` — Enable display support.
 - **HAS_MQTT** default: `true` — Enable MQTT and Home Assistant integration.
 
 ### Selectors (*_DRIVER)
@@ -38,7 +37,7 @@ Total flags: 40
 
 - **DISPLAY_HEIGHT** default: `(no default)` — Display framebuffer height in pixels.
 - **DISPLAY_ROTATION** default: `0` — Display rotation (0=portrait, 2=180°).
-- **DISPLAY_WIDTH** default: `(no default)` — Display framebuffer width in pixels.
+- **DISPLAY_WIDTH** default: `(no default)` — Display dimensions.
 
 ### Hardware (Pins)
 
@@ -87,9 +86,9 @@ Total flags: 40
 Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 
 <!-- BEGIN COMPILE_FLAG_REPORT:MATRIX_FEATURES -->
-| board-name | HAS_BACKLIGHT | HAS_BUILTIN_LED | HAS_DISPLAY | HAS_MQTT |
-| --- | --- | --- | --- | --- |
-| esp32s2-photoframe-it8951 |  |  | ✅ | ✅ |
+| board-name | HAS_BACKLIGHT | HAS_BUILTIN_LED | HAS_MQTT |
+| --- | --- | --- | --- |
+| esp32s2-photoframe-it8951 |  |  | ✅ |
 <!-- END COMPILE_FLAG_REPORT:MATRIX_FEATURES -->
 
 ## Board Matrix: Selectors (generated)
@@ -111,20 +110,6 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/web_portal_routes.cpp
 - **HAS_BUILTIN_LED**
   - src/app/board_config.h
-- **HAS_DISPLAY**
-  - src/app/app.ino
-  - src/app/board_config.h
-  - src/app/device_telemetry.cpp
-  - src/app/display_drivers.cpp
-  - src/app/display_manager.cpp
-  - src/app/ha_discovery.cpp
-  - src/app/it8951_renderer.cpp
-  - src/app/portal_controller.cpp
-  - src/app/web_portal_config.cpp
-  - src/app/web_portal_device_api.cpp
-  - src/app/web_portal_display.cpp
-  - src/app/web_portal_display.h
-  - src/app/web_portal_routes.cpp
 - **HAS_MQTT**
   - src/app/app.ino
   - src/app/board_config.h
@@ -140,6 +125,8 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/display_manager.cpp
 - **DISPLAY_HEIGHT**
   - src/app/board_config.h
+- **DISPLAY_POWER_EN_PIN**
+  - src/app/display_power.cpp
 - **DISPLAY_ROTATION**
   - src/app/board_config.h
 - **DISPLAY_WIDTH**

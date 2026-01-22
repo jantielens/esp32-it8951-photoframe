@@ -63,11 +63,9 @@ void ha_discovery_publish_health(MqttManager &mqtt) {
     publish_sensor_config(mqtt, "fs_used_bytes", "FS Used", "{{ value_json.fs_used_bytes }}", "B", "", "measurement", "diagnostic");
     publish_sensor_config(mqtt, "fs_total_bytes", "FS Total", "{{ value_json.fs_total_bytes }}", "B", "", "measurement", "diagnostic");
 
-    #if HAS_DISPLAY
     publish_sensor_config(mqtt, "display_fps", "Display FPS", "{{ value_json.display_fps }}", "fps", "", "measurement", "diagnostic");
     publish_sensor_config(mqtt, "display_lv_timer_us", "Display LV Timer", "{{ value_json.display_lv_timer_us }}", "us", "", "measurement", "diagnostic");
     publish_sensor_config(mqtt, "display_present_us", "Display Present", "{{ value_json.display_present_us }}", "us", "", "measurement", "diagnostic");
-    #endif
 
     publish_sensor_config(mqtt, "wifi_rssi", "WiFi RSSI", "{{ value_json.wifi_rssi }}", "dBm", "signal_strength", "measurement", "diagnostic");
 

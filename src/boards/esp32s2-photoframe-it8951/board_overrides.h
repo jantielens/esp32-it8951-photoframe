@@ -11,7 +11,6 @@
 // Phase-1 Scope (minimal firmware)
 // ---------------------------------------------------------------------------
 // Disable template subsystems for Phase-1 simplicity.
-#define HAS_DISPLAY true
 #define HAS_MQTT true
 #define HEALTH_HISTORY_ENABLED 1
 

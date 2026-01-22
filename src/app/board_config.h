@@ -94,9 +94,6 @@
 // #ifndef BUTTON_PIN
 // #define BUTTON_PIN 0
 // #endif
-// Display:
-// #ifndef HAS_DISPLAY
-// #define HAS_DISPLAY false
 // Web Portal Health Widget
 // ============================================================================
 // How often the web UI polls /api/health.
@@ -151,11 +148,6 @@
 // ============================================================================
 // Display Configuration
 // ============================================================================
-// Enable display support.
-#ifndef HAS_DISPLAY
-#define HAS_DISPLAY false
-#endif
-
 // Display driver selection (e-ink).
 #define DISPLAY_DRIVER_IT8951 1
 
@@ -164,17 +156,15 @@
 #define DISPLAY_DRIVER DISPLAY_DRIVER_IT8951
 #endif
 
-// Display dimensions (required when HAS_DISPLAY is true).
-#if HAS_DISPLAY
-	#ifndef DISPLAY_WIDTH
-		#error DISPLAY_WIDTH must be defined when HAS_DISPLAY is true
-	#endif
-	#ifndef DISPLAY_HEIGHT
-		#error DISPLAY_HEIGHT must be defined when HAS_DISPLAY is true
-	#endif
-	#ifndef DISPLAY_ROTATION
-		#define DISPLAY_ROTATION 0
-	#endif
+// Display dimensions.
+#ifndef DISPLAY_WIDTH
+	#error DISPLAY_WIDTH must be defined
+#endif
+#ifndef DISPLAY_HEIGHT
+	#error DISPLAY_HEIGHT must be defined
+#endif
+#ifndef DISPLAY_ROTATION
+	#define DISPLAY_ROTATION 0
 #endif
 
 // Minimum interval between e-ink refreshes.

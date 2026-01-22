@@ -17,10 +17,7 @@
 #if HAS_MQTT
 #include "mqtt_manager.h"
 #endif
-
-#if HAS_DISPLAY
 #include "display_manager.h"
-#endif
 
 // Temperature sensor support (ESP32-C3, ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C6, ESP32-H2)
 #if SOC_TEMP_SENSOR_SUPPORTED
@@ -978,7 +975,6 @@ static void fill_common(JsonDocument &doc, bool include_ip_and_channel, bool inc
     }
 
     // Display perf (best-effort)
-    #if HAS_DISPLAY
     if (displayManager) {
         DisplayPerfStats stats;
         if (display_manager_get_perf_stats(&stats)) {
@@ -995,11 +991,6 @@ static void fill_common(JsonDocument &doc, bool include_ip_and_channel, bool inc
         doc["display_lv_timer_us"] = nullptr;
         doc["display_present_us"] = nullptr;
     }
-    #else
-    doc["display_fps"] = nullptr;
-    doc["display_lv_timer_us"] = nullptr;
-    doc["display_present_us"] = nullptr;
-    #endif
 
     // WiFi stats (only if connected)
     if (WiFi.status() == WL_CONNECTED) {

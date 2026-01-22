@@ -565,7 +565,9 @@ def cmd_build(args: argparse.Namespace) -> None:
         ]
     )
 
-    has_display = parse_bool(effective.get("HAS_DISPLAY")) is True
+    # Project assumption: this firmware always targets a device with a display.
+    # HAS_DISPLAY was intentionally removed from the codebase.
+    has_display = True
     has_touch = parse_bool(effective.get("HAS_TOUCH")) is True
 
     print("Compile-time flags summary")
@@ -581,9 +583,6 @@ def cmd_build(args: argparse.Namespace) -> None:
     print("Key selectors:")
     for sel in key_selectors:
         if sel in lv_conf_defines:
-            continue
-        if sel == "DISPLAY_DRIVER" and not has_display:
-            print(f"  - {sel}: (n/a; HAS_DISPLAY=false)")
             continue
         if sel == "TOUCH_DRIVER" and not has_touch:
             print(f"  - {sel}: (n/a; HAS_TOUCH=false)")
@@ -732,7 +731,9 @@ def cmd_md(args: argparse.Namespace) -> None:
     for b in boards:
         eff = compute_effective_macros_for_board(defaults, board_overrides[b])
 
-        has_display = parse_bool(eff.get("HAS_DISPLAY")) is True
+        # Project assumption: this firmware always targets a device with a display.
+        # HAS_DISPLAY was intentionally removed from the codebase.
+        has_display = True
         has_touch = parse_bool(eff.get("HAS_TOUCH")) is True
 
         row_f = [b]
@@ -748,9 +749,6 @@ def cmd_md(args: argparse.Namespace) -> None:
 
         row_s = [b]
         for s in selectors_sorted:
-            if s == "DISPLAY_DRIVER" and not has_display:
-                row_s.append("—")
-                continue
             if s == "TOUCH_DRIVER" and not has_touch:
                 row_s.append("—")
                 continue

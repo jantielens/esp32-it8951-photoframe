@@ -9,12 +9,11 @@
 #include "blob_pull.h"
 #include "portal_controller.h"
 #include "render_scheduler.h"
+#include "boot_mode.h"
 #if HAS_MQTT
 #include "mqtt_manager.h"
 #endif
-#if HAS_DISPLAY
 #include "display_manager.h"
-#endif
 #if HEALTH_HISTORY_ENABLED
 #include "health_history.h"
 #endif
@@ -34,6 +33,14 @@ static constexpr uint32_t kNoImageRetryMs = 5000;
 static constexpr time_t kValidEpochThreshold = 1609459200; // 2021-01-01T00:00:00Z
 
 static SPIClass sdSpi(HSPI);
+
+static const SdCardPins kSdPins = {
+  .cs = SD_CS_PIN,
+  .sck = SD_SCK_PIN,
+  .miso = SD_MISO_PIN,
+  .mosi = SD_MOSI_PIN,
+  .power = SD_POWER_PIN,
+};
 
 #if HAS_MQTT
 MqttManager mqtt_manager;
@@ -63,12 +70,10 @@ static bool connect_wifi_sta(const DeviceConfig &config, const char *reason, boo
     return true;
   }
 
-  #if HAS_DISPLAY
   if (show_status) {
     display_manager_set_splash_status("Connecting to WiFi...");
     display_manager_render_now();
   }
-  #endif
 
   LOGI("WiFi", "%s: connect start (ssid set)", reason ? reason : "WiFi");
   WiFi.mode(WIFI_STA);
@@ -78,12 +83,12 @@ static bool connect_wifi_sta(const DeviceConfig &config, const char *reason, boo
     const unsigned long start = millis();
     while (millis() - start < 3000) {
       if (WiFi.status() == WL_CONNECTED) {
-        #if HAS_DISPLAY
         if (show_status) {
-          display_manager_set_splash_status("WiFi connected");
+          String status = "WiFi connected: ";
+          status += WiFi.localIP().toString();
+          display_manager_set_splash_status(status.c_str());
           display_manager_render_now();
         }
-        #endif
         LOGI("WiFi", "%s: connected %s", reason ? reason : "WiFi", WiFi.localIP().toString().c_str());
         return true;
       }
@@ -93,12 +98,10 @@ static bool connect_wifi_sta(const DeviceConfig &config, const char *reason, boo
   }
 
   LOGW("WiFi", "%s: connect failed (max attempts)", reason ? reason : "WiFi");
-  #if HAS_DISPLAY
   if (show_status) {
     display_manager_set_splash_status("WiFi connect failed");
     display_manager_render_now();
   }
-  #endif
   return false;
 }
 
@@ -108,12 +111,10 @@ static bool sync_time_ntp(bool wifi_connected, bool show_status) {
   if (!wifi_connected) return false;
 
   LOGI("Time", "NTP sync start");
-  #if HAS_DISPLAY
   if (show_status) {
     display_manager_set_splash_status("Syncing time...");
     display_manager_render_now();
   }
-  #endif
 
   configTime(0, 0, "pool.ntp.org", "time.nist.gov", "time.google.com");
   const unsigned long start = millis();
@@ -128,32 +129,19 @@ static bool sync_time_ntp(bool wifi_connected, bool show_status) {
   }
 
   LOGW("Time", "NTP sync failed (timeout)");
-  #if HAS_DISPLAY
   if (show_status) {
     display_manager_set_splash_status("Time sync failed");
     display_manager_render_now();
   }
-  #endif
   return false;
 }
 
-static void disconnect_wifi_for_mqtt() {
+static void wifi_shutdown() {
   if (WiFi.status() == WL_CONNECTED) {
     WiFi.disconnect(true);
     delay(50);
   }
   WiFi.mode(WIFI_OFF);
-}
-
-static SdCardPins make_sd_pins() {
-  SdCardPins pins = {
-      .cs = SD_CS_PIN,
-      .sck = SD_SCK_PIN,
-      .miso = SD_MISO_PIN,
-      .mosi = SD_MOSI_PIN,
-      .power = SD_POWER_PIN,
-  };
-  return pins;
 }
 
 #if HAS_MQTT
@@ -163,7 +151,7 @@ static void mqtt_init_from_config(const DeviceConfig &config) {
   mqtt_manager.begin(&config, config.device_name, sanitized);
 }
 
-static void mqtt_publish_before_sleep(const DeviceConfig &config, bool wifi_connected, bool disconnect_after) {
+static void mqtt_publish_before_sleep(const DeviceConfig &config, bool wifi_connected) {
   if (strlen(config.mqtt_host) == 0) return;
   if (!wifi_connected) {
     LOGW("MQTT", "WiFi not connected; skipping publish");
@@ -191,10 +179,6 @@ static void mqtt_publish_before_sleep(const DeviceConfig &config, bool wifi_conn
     }
   } else {
     LOGW("MQTT", "Connect timeout before sleep");
-  }
-
-  if (disconnect_after) {
-    disconnect_wifi_for_mqtt();
   }
 }
 #endif
@@ -246,31 +230,33 @@ static void enter_deep_sleep(uint32_t sleep_seconds) {
   esp_deep_sleep_start();
 }
 
-// Fast-wake path: for timer or button wake when always-on is disabled.
-// Goal: render next image and sleep ASAP (skip splash + portal + WiFi).
-static bool is_fast_wake(const DeviceConfig &config, uint16_t long_press_ms) {
-  if (config.always_on) return false;
-  if (long_press_ms > 0 && input_manager_check_long_press(long_press_ms)) {
-    return false;  // Long press should enter config mode.
+static BootDecision decide_boot_mode(const DeviceConfig &config, esp_sleep_wakeup_cause_t wake_cause, bool long_press) {
+  BootDecision d;
+
+  if (config.always_on) {
+    d.mode = BootMode::AlwaysOn;
+    d.quiet_ui = false;
+    return d;
   }
 
-  const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-  return (cause == ESP_SLEEP_WAKEUP_TIMER ||
-      cause == ESP_SLEEP_WAKEUP_EXT0 ||
-      cause == ESP_SLEEP_WAKEUP_EXT1 ||
-      cause == ESP_SLEEP_WAKEUP_TOUCHPAD);
+  if (long_press) {
+    d.mode = BootMode::ConfigPortal;
+    d.quiet_ui = false;
+    return d;
+  }
+
+  d.mode = BootMode::SleepCycle;
+  d.quiet_ui = is_quiet_wake_cause(wake_cause);
+  return d;
 }
 
 static void run_config_mode(DeviceConfig &config, bool config_loaded) {
   LOGI("Portal", "Config mode start");
 
-  #if HAS_DISPLAY
   display_manager_set_splash_status("AP mode: configure WiFi");
   display_manager_render_now();
-  #endif
 
-  const SdCardPins pins = make_sd_pins();
-  portal_controller_start(config, config_loaded, sdSpi, pins, kSdFrequencyHz);
+  portal_controller_start(config, config_loaded, sdSpi, kSdPins, kSdFrequencyHz);
 
   while (true) {
     portal_controller_tick();
@@ -285,13 +271,10 @@ static void run_config_mode(DeviceConfig &config, bool config_loaded) {
 static void run_always_on(DeviceConfig &config, bool config_loaded) {
   LOGI("Mode", "Always-on enabled");
 
-  #if HAS_DISPLAY
   display_manager_set_splash_status("Always-on mode");
   display_manager_render_now();
-  #endif
 
-  const SdCardPins pins = make_sd_pins();
-  portal_controller_start(config, config_loaded, sdSpi, pins, kSdFrequencyHz);
+  portal_controller_start(config, config_loaded, sdSpi, kSdPins, kSdFrequencyHz);
 
   // Keep time reasonably fresh for temp expiry cleanup while always-on.
   sync_time_ntp(WiFi.status() == WL_CONNECTED, false);
@@ -312,7 +295,7 @@ static void run_always_on(DeviceConfig &config, bool config_loaded) {
 
     g_blob_pull_ctx.config = &config;
     g_blob_pull_ctx.spi = &sdSpi;
-    g_blob_pull_ctx.pins = pins;
+    g_blob_pull_ctx.pins = kSdPins;
     g_blob_pull_ctx.frequency_hz = kSdFrequencyHz;
     render_scheduler_set_pre_enqueue_hook(blob_pull_pre_enqueue, &g_blob_pull_ctx);
 
@@ -336,6 +319,76 @@ static void run_always_on(DeviceConfig &config, bool config_loaded) {
   }
 }
 
+// One-shot sleep cycle: never starts the portal.
+static void run_sleep_cycle(const DeviceConfig &config, uint32_t sleep_seconds, bool quiet_ui) {
+  LOGI("Mode", "SleepCycle start (quiet_ui=%s)", quiet_ui ? "true" : "false");
+
+  const bool wifi_was_connected = (WiFi.status() == WL_CONNECTED);
+  bool wifi_connected = wifi_was_connected;
+
+  const bool needs_wifi = (strlen(config.blob_sas_url) > 0)
+  #if HAS_MQTT
+      || (strlen(config.mqtt_host) > 0)
+  #endif
+      ;
+
+  if (!wifi_connected && needs_wifi) {
+    wifi_connected = connect_wifi_sta(config, "Boot", !quiet_ui);
+  }
+
+  // Best-effort; used for temp expiry cleanup.
+  sync_time_ntp(wifi_connected, !quiet_ui);
+
+  bool downloaded = false;
+  if (strlen(config.blob_sas_url) > 0) {
+    LOGI("Blob", "SAS configured; attempting blob pull");
+    if (wifi_connected) {
+      if (!quiet_ui) {
+        display_manager_set_splash_status("Downloading image...");
+        display_manager_render_now();
+      }
+      downloaded = blob_pull_download_once(config, sdSpi, kSdPins, kSdFrequencyHz);
+      if (!quiet_ui) {
+        display_manager_set_splash_status(downloaded ? "Download OK" : "Download failed");
+        display_manager_render_now();
+      }
+    } else {
+      LOGW("Blob", "WiFi unavailable; skipping blob pull");
+    }
+    if (!downloaded) {
+      LOGW("Blob", "No blob downloaded; falling back to SD");
+    }
+  }
+
+  if (!quiet_ui) {
+    display_manager_set_splash_status("Rendering...");
+    display_manager_render_now();
+  }
+
+  if (!render_scheduler_render_once(config, sdSpi, kSdPins, kSdFrequencyHz)) {
+    LOGW("Mode", "Render once failed; entering deep sleep");
+    #if HAS_MQTT
+    mqtt_publish_before_sleep(config, wifi_connected);
+    #endif
+    if (!wifi_was_connected) {
+      wifi_shutdown();
+    }
+    enter_deep_sleep(sleep_seconds);
+    return;
+  }
+
+  #if HAS_MQTT
+  mqtt_publish_before_sleep(config, wifi_connected);
+  #endif
+
+  if (!wifi_was_connected) {
+    wifi_shutdown();
+  }
+
+  it8951_renderer_hibernate();
+  enter_deep_sleep(sleep_seconds);
+}
+
 void setup() {
   #if HEALTH_HISTORY_ENABLED
   health_history_start();
@@ -344,7 +397,8 @@ void setup() {
   log_init(115200);
   delay(200);
   LOGI("Boot", "Boot");
-  LOGI("Boot", "Wake cause=%d", (int)esp_sleep_get_wakeup_cause());
+  const esp_sleep_wakeup_cause_t wake_cause = esp_sleep_get_wakeup_cause();
+  LOGI("Boot", "Wake cause=%d", (int)wake_cause);
 
   // Ensure display boost EN is in a known state early.
   display_power_init();
@@ -362,9 +416,7 @@ void setup() {
   DeviceConfig config = {};
 
   config_manager_init();
-  #if HAS_DISPLAY
-  // Avoid UI work until we decide whether to take the fast-wake path.
-  #endif
+  // Display is always present; UI verbosity is controlled by quiet_ui.
   const bool config_loaded = config_manager_load(&config);
   if (!config_loaded || strlen(config.device_name) == 0) {
     String default_name = config_manager_get_default_device_name();
@@ -372,18 +424,26 @@ void setup() {
   }
   rtc_image_state_init();
 
-    LOGI("Boot", "Config loaded=%s always_on=%s sleep=%lus wifi=%s mode=%s",
+  const uint16_t long_press_ms = config.long_press_ms > 0 ? config.long_press_ms : kDefaultLongPressMs;
+  const bool long_press = (long_press_ms > 0) ? input_manager_check_long_press(long_press_ms) : false;
+
+  const uint32_t sleep_seconds = config.sleep_timeout_seconds > 0
+      ? config.sleep_timeout_seconds
+      : kDefaultSleepSeconds;
+
+  const BootDecision decision = decide_boot_mode(config, wake_cause, long_press);
+
+  LOGI("Boot", "Config loaded=%s always_on=%s sleep=%lus wifi=%s image_mode=%s long_press=%s mode=%s quiet_ui=%s",
       config_loaded ? "true" : "false",
       config.always_on ? "true" : "false",
-      (unsigned long)(config.sleep_timeout_seconds > 0 ? config.sleep_timeout_seconds : kDefaultSleepSeconds),
+      (unsigned long)sleep_seconds,
       strlen(config.wifi_ssid) > 0 ? "set" : "empty",
-      config.image_selection_mode);
+      config.image_selection_mode,
+      long_press ? "true" : "false",
+      boot_mode_name(decision.mode),
+      decision.quiet_ui ? "true" : "false");
 
-  const uint16_t long_press_ms = config.long_press_ms > 0 ? config.long_press_ms : kDefaultLongPressMs;
-  const bool fast_wake = is_fast_wake(config, long_press_ms);
-
-  #if HAS_DISPLAY
-  if (!fast_wake) {
+  if (!decision.quiet_ui) {
     display_manager_init(&config);
     {
       char status[64];
@@ -391,85 +451,23 @@ void setup() {
       display_manager_set_splash_status(status);
       display_manager_render_full_now();
     }
-    display_manager_set_splash_status("Booting...");
-    display_manager_render_now_ex(false);
-    display_manager_set_splash_status("Loading config...");
-    display_manager_render_now();
-    display_manager_set_splash_status(config_loaded ? "Config loaded" : "Using defaults");
-    display_manager_render_now();
-  }
-  #endif
-
-  const uint32_t sleep_seconds = config.sleep_timeout_seconds > 0
-      ? config.sleep_timeout_seconds
-      : kDefaultSleepSeconds;
-  if (config.always_on) {
-    LOGI("Mode", "Always-on selected");
-#if HAS_DISPLAY
-    display_manager_set_splash_status("Start rendering image");
-    display_manager_render_now();
-#endif
-    run_always_on(config, config_loaded);
-    return;
-  } else {
-    if (!fast_wake) {
-      const bool long_press = input_manager_check_long_press(long_press_ms);
-      if (long_press) {
-        LOGI("Button", "Long press detected (%ums) - config mode requested", (unsigned)long_press_ms);
-        run_config_mode(config, config_loaded);
-        return;
-      }
-    }
   }
 
-  LOGI("Mode", "Default sleep mode selected");
+  switch (decision.mode) {
+    case BootMode::AlwaysOn:
+      LOGI("Mode", "Always-on selected");
+      run_always_on(config, config_loaded);
+      return;
 
-  const SdCardPins pins = make_sd_pins();
+    case BootMode::ConfigPortal:
+      LOGI("Button", "Long press detected (%ums) - config mode requested", (unsigned)long_press_ms);
+      run_config_mode(config, config_loaded);
+      return;
 
-  bool wifi_was_connected = (WiFi.status() == WL_CONNECTED);
-  bool wifi_connected = wifi_was_connected;
-  const bool needs_wifi = (strlen(config.blob_sas_url) > 0)
-  #if HAS_MQTT
-      || (strlen(config.mqtt_host) > 0)
-  #endif
-      ;
-
-  // Fast-wake path avoids the portal/UI; only connect when needed.
-  if (!wifi_connected && needs_wifi) {
-    const bool show_status = !fast_wake;
-    wifi_connected = connect_wifi_sta(config, "Boot", show_status);
+    case BootMode::SleepCycle:
+      run_sleep_cycle(config, sleep_seconds, decision.quiet_ui);
+      return;
   }
-
-  // Sync time if WiFi is up so temp expiry checks can run this wake.
-  sync_time_ntp(wifi_connected, !fast_wake);
-
-  bool downloaded = false;
-  if (strlen(config.blob_sas_url) > 0) {
-    LOGI("Blob", "SAS configured; attempting blob pull");
-    if (wifi_connected) {
-      downloaded = blob_pull_download_once(config, sdSpi, pins, kSdFrequencyHz);
-    } else {
-      LOGW("Blob", "WiFi unavailable; skipping blob pull");
-    }
-    if (!downloaded) {
-      LOGW("Blob", "No blob downloaded; falling back to SD");
-    }
-  }
-
-  if (!render_scheduler_render_once(config, sdSpi, pins, kSdFrequencyHz)) {
-    LOGW("Mode", "Render once failed; entering deep sleep");
-    #if HAS_MQTT
-    mqtt_publish_before_sleep(config, wifi_connected, !wifi_was_connected);
-    #endif
-    enter_deep_sleep(sleep_seconds);
-    return;
-  }
-
-  #if HAS_MQTT
-  mqtt_publish_before_sleep(config, wifi_connected, !wifi_was_connected);
-  #endif
-  it8951_renderer_hibernate();
-  enter_deep_sleep(sleep_seconds);
 }
 
 void loop() {}

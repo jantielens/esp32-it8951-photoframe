@@ -4,9 +4,7 @@
 #include "web_portal.h"
 #include "web_portal_render_control.h"
 #include "log_manager.h"
-#if HAS_DISPLAY
 #include "display_manager.h"
-#endif
 
 #include <WiFi.h>
 #include <ESPmDNS.h>
@@ -14,16 +12,12 @@
 namespace {
 static bool init_sd_for_portal(SPIClass &spi, const SdCardPins &pins, uint32_t frequency_hz) {
     LOGI("Portal", "SD init start freq=%lu", (unsigned long)frequency_hz);
-#if HAS_DISPLAY
     display_manager_set_splash_status("SD init...");
     display_manager_render_now();
-#endif
     if (!sd_storage_configure(spi, pins, frequency_hz)) {
         LOGE("Portal", "SD configure failed");
-#if HAS_DISPLAY
         display_manager_set_splash_status("SD failed");
         display_manager_render_now();
-#endif
         return false;
     }
 
@@ -31,18 +25,14 @@ static bool init_sd_for_portal(SPIClass &spi, const SdCardPins &pins, uint32_t f
         delay(200);
         if (!sd_storage_ensure_ready()) {
             LOGE("Portal", "SD init failed after retry");
-#if HAS_DISPLAY
             display_manager_set_splash_status("SD failed");
             display_manager_render_now();
-#endif
             return false;
         }
     }
     LOGI("Portal", "SD init OK");
-#if HAS_DISPLAY
     display_manager_set_splash_status("SD ready");
     display_manager_render_now();
-#endif
     return true;
 }
 
@@ -58,10 +48,8 @@ static bool connect_wifi_simple(const DeviceConfig &config) {
     if (strlen(config.wifi_ssid) == 0) return false;
 
     LOGI("WiFi", "Connect start (ssid set)");
-#if HAS_DISPLAY
     display_manager_set_splash_status("Connecting to WiFi...");
     display_manager_render_now();
-#endif
     WiFi.mode(WIFI_STA);
     WiFi.begin(config.wifi_ssid, config.wifi_password);
 
@@ -70,23 +58,19 @@ static bool connect_wifi_simple(const DeviceConfig &config) {
         while (millis() - start < 3000) {
             if (WiFi.status() == WL_CONNECTED) {
                 LOGI("WiFi", "Connected: %s", WiFi.localIP().toString().c_str());
-#if HAS_DISPLAY
                 String status = "WiFi connected: ";
                 status += WiFi.localIP().toString();
                 display_manager_set_splash_status(status.c_str());
                 display_manager_render_now();
-#endif
                 return true;
             }
             delay(100);
         }
         LOGW("WiFi", "Connect attempt %d/%d failed", attempt + 1, WIFI_MAX_ATTEMPTS);
-#if HAS_DISPLAY
         char status[64];
         snprintf(status, sizeof(status), "WiFi failed %d/%d", attempt + 1, WIFI_MAX_ATTEMPTS);
         display_manager_set_splash_status(status);
         display_manager_render_now();
-#endif
     }
 
     LOGW("WiFi", "Connect failed (max attempts)");
@@ -125,20 +109,15 @@ void portal_controller_start(DeviceConfig &config, bool config_loaded, SPIClass 
     }
 
     LOGI("Portal", "Init web portal");
-#if HAS_DISPLAY
     display_manager_set_splash_status("Portal ready");
     display_manager_render_now();
-#endif
     web_portal_init(&config);
 }
 
 void portal_controller_tick() {
     web_portal_handle();
     sd_storage_purge_jobs();
-
-    #if HAS_DISPLAY
     display_manager_tick();
-    #endif
 
     static bool last_paused = false;
     const bool paused = web_portal_render_is_paused();
