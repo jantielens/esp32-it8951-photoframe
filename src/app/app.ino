@@ -10,6 +10,7 @@
 #include "portal_controller.h"
 #include "render_scheduler.h"
 #include "boot_mode.h"
+#include "web_portal.h"
 #if HAS_MQTT
 #include "mqtt_manager.h"
 #endif
@@ -95,11 +96,42 @@ static bool sync_time_ntp(bool wifi_connected, bool show_status) {
 }
 
 static void wifi_shutdown() {
+  const wl_status_t st = WiFi.status();
+  const wifi_mode_t mode = WiFi.getMode();
+  LOGI("WiFi", "Shutdown start (status=%d mode=%d)", (int)st, (int)mode);
+
   if (WiFi.status() == WL_CONNECTED) {
+    IPAddress ip = WiFi.localIP();
+    LOGI("WiFi", "Disconnecting from %u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
     WiFi.disconnect(true);
     delay(50);
   }
   WiFi.mode(WIFI_OFF);
+
+  delay(20);
+  LOGI("WiFi", "Shutdown done (status=%d mode=%d)", (int)WiFi.status(), (int)WiFi.getMode());
+}
+
+static void show_portal_ip_and_power_down_display() {
+  // Display the portal IP once (e-ink retains image), then cut display power.
+  // This avoids overlapping WiFi + display power draw during portal runtime.
+  IPAddress ip;
+  if (web_portal_is_ap_mode()) {
+    ip = WiFi.softAPIP();
+  } else if (WiFi.status() == WL_CONNECTED) {
+    ip = WiFi.localIP();
+  } else {
+    // Fallback: default captive portal IP.
+    ip = IPAddress(192, 168, 4, 1);
+  }
+
+  char status[64];
+  snprintf(status, sizeof(status), "Portal: %u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+  display_manager_set_splash_status(status);
+  display_manager_render_full_now();
+
+  // Hibernate + power-cut the display rail.
+  it8951_renderer_hibernate();
 }
 
 #if HAS_MQTT
@@ -216,6 +248,9 @@ static void run_config_mode(DeviceConfig &config, bool config_loaded) {
 
   portal_controller_start(config, config_loaded, sdSpi, kSdPins, kSdFrequencyHz);
 
+  // Show the portal IP once and then power down the display.
+  show_portal_ip_and_power_down_display();
+
   while (true) {
     portal_controller_tick();
     if (portal_controller_is_paused()) {
@@ -291,25 +326,18 @@ static void run_sleep_cycle(const DeviceConfig &config, uint32_t sleep_seconds, 
       ;
 
   if (!wifi_connected && needs_wifi) {
-    wifi_connected = wifi_connect_fast_sleepcycle(config, "Boot", /*budget_ms=*/6000, /*show_status=*/!quiet_ui);
+    // In sleep-cycle mode we avoid display activity while WiFi is active.
+    wifi_connected = wifi_connect_fast_sleepcycle(config, "Boot", /*budget_ms=*/6000, /*show_status=*/false);
   }
 
   // Best-effort; used for temp expiry cleanup.
-  sync_time_ntp(wifi_connected, !quiet_ui);
+  sync_time_ntp(wifi_connected, /*show_status=*/false);
 
   bool downloaded = false;
   if (strlen(config.blob_sas_url) > 0) {
     LOGI("Blob", "SAS configured; attempting blob pull");
     if (wifi_connected) {
-      if (!quiet_ui) {
-        display_manager_set_splash_status("Downloading image...");
-        display_manager_render_now();
-      }
       downloaded = blob_pull_download_once(config, sdSpi, kSdPins, kSdFrequencyHz);
-      if (!quiet_ui) {
-        display_manager_set_splash_status(downloaded ? "Download OK" : "Download failed");
-        display_manager_render_now();
-      }
     } else {
       LOGW("Blob", "WiFi unavailable; skipping blob pull");
     }
@@ -318,29 +346,19 @@ static void run_sleep_cycle(const DeviceConfig &config, uint32_t sleep_seconds, 
     }
   }
 
-  if (!quiet_ui) {
-    display_manager_set_splash_status("Rendering...");
-    display_manager_render_now();
-  }
-
-  if (!render_scheduler_render_once(config, sdSpi, kSdPins, kSdFrequencyHz)) {
-    LOGW("Mode", "Render once failed; entering deep sleep");
-    #if HAS_MQTT
-    mqtt_publish_before_sleep(config, wifi_connected);
-    #endif
-    if (!wifi_was_connected) {
-      wifi_shutdown();
-    }
-    enter_deep_sleep(sleep_seconds);
-    return;
-  }
-
+  // If MQTT is configured, publish while WiFi is still available.
   #if HAS_MQTT
   mqtt_publish_before_sleep(config, wifi_connected);
   #endif
 
-  if (!wifi_was_connected) {
-    wifi_shutdown();
+  // Ensure WiFi is off before any display rendering to avoid overlapping peak power draw.
+  // (Even if WiFi was already connected when we booted.)
+  wifi_shutdown();
+
+  if (!render_scheduler_render_once(config, sdSpi, kSdPins, kSdFrequencyHz)) {
+    LOGW("Mode", "Render once failed; entering deep sleep");
+    enter_deep_sleep(sleep_seconds);
+    return;
   }
 
   it8951_renderer_hibernate();
@@ -407,7 +425,9 @@ void setup() {
       boot_mode_name(decision.mode),
       decision.quiet_ui ? "true" : "false");
 
-  if (!decision.quiet_ui) {
+  // In SleepCycle mode we avoid initializing the display UI during WiFi activity.
+  // Rendering is handled by the render service later (directly to the IT8951).
+  if (!decision.quiet_ui && decision.mode != BootMode::SleepCycle) {
     display_manager_init(&config);
     {
       char status[64];
