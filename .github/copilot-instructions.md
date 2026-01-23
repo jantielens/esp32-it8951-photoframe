@@ -2,10 +2,11 @@
 
 ## Project Overview
 
-This repository is a **project-specific firmware** for a single target board and display driver. It was created from a template, but it is **no longer a template**. Code should be optimized for the chosen hardware and use cases, not generalized for many boards.
+This repository is a **project-specific firmware** for a small set of supported ESP32-based boards and a single display driver. It was created from a template, but it is **no longer a template**. Code should be optimized for the supported hardware and use cases, not generalized for many boards.
 
 ### Scope & Assumptions (Important)
-- **Single target board**: treat the current board as the primary (and default) target.
+- **Multi-board project (small set)**: support multiple named boards via `config.sh` + `src/boards/<board-name>/board_overrides.h`.
+- **Primary board mindset**: avoid over-generalizing; implement for the project’s supported boards, and keep behavior consistent across them unless a board override explicitly requires divergence.
 - **Single display driver**: assume the selected display driver is the one in use.
 - **No generic template patterns**: avoid adding extra compile-time flags or “template” abstractions unless a real project need exists.
 - **Prefer direct implementations** over conditional compilation when not required for this project.
@@ -13,24 +14,23 @@ This repository is a **project-specific firmware** for a single target board and
 ## Architecture
 
 - **Build System**: Custom bash scripts wrapping `arduino-cli` (installed locally to `./bin/`)
-- **PNG Assets (LVGL)**: Optional `assets/png/*.png` conversion to `lv_img_dsc_t` symbols (generated into `src/app/png_assets.cpp/h` by `tools/png2lvgl_assets.py` when building display-enabled boards)
+- **PNG Assets (legacy stub)**: `src/app/png_assets.cpp/h` exists as a LVGL-removed stub to avoid build errors; this repo does not generate LVGL assets.
 - **Sketch Location**: Main Arduino file at `src/app/app.ino`
 - **Board Configuration**: Project-specific configuration with optional overrides
   - `src/app/board_config.h` - Default configuration for this project
-  - `src/boards/[board-name]/board_overrides.h` - Optional per-board overrides (use only if the project genuinely supports multiple boards)
+  - `src/boards/[board-name]/board_overrides.h` - Per-board overrides for each supported board variant
   - Avoid `#if HAS_xxx` and other template-style feature flags unless required by the project
-- **Display & Touch Subsystem**: HAL-based architecture with LVGL integration (see `docs/display-touch-architecture.md`)
-  - `display_driver.h` - DisplayDriver HAL interface (`RenderMode`, `present()`, `configureLVGL()`)
-  - `display_manager.cpp/h` - Hardware lifecycle, LVGL init, FreeRTOS rendering task
-  - `touch_driver.h` - TouchDriver HAL interface
-  - `touch_manager.cpp/h` - Touch input registration and calibration
-  - `display_drivers.cpp` - Sketch-root “translation unit” that conditionally includes exactly one selected display driver `.cpp`
-  - `touch_drivers.cpp` - Sketch-root “translation unit” that conditionally includes exactly one selected touch driver `.cpp`
-  - `drivers/` - Driver implementations (TFT_eSPI, ST7789V2, Arduino_GFX, XPT2046, AXS15231B)
-  - `screens/` - Screen base class and implementations (splash, info, test)
-  - Conditional compilation: Only selected drivers are compiled via `display_drivers.cpp` / `touch_drivers.cpp` (Arduino doesn’t auto-compile subdir `.cpp`)
+- **Display Subsystem (e-ink)**: Minimal, LVGL-free HAL + renderer pipeline (see `src/app/drivers/README.md` and `docs/display-performance-poc.md`)
+  - `src/app/display_driver.h` - DisplayDriver HAL (packed G4 full/region presents)
+  - `src/app/display_drivers.cpp` - Sketch-root translation unit that includes exactly one selected display driver `.cpp`
+  - `src/app/drivers/it8951_display_driver.*` - IT8951 DisplayDriver implementation
+  - `src/app/it8951_renderer.*` - GxEPD2-backed IT8951 present path (full + region)
+  - `src/app/display_manager.*` - Display/UI lifecycle + screen registry
+  - `src/app/eink_ui.*` - E-ink UI rendering/composition
+  - `src/app/screens/` - Screen implementations (currently splash)
+  - Touch drivers have been removed for this project.
 - **Web Portal**: Multi-page async web server with captive portal support
-  - `web_portal.cpp/h` - Server and REST API implementation
+  - `web_portal*.cpp/h` - Server and REST API implementation (split across modules)
   - `web_assets.h` - Embedded HTML/CSS/JS (from `src/app/web/`) (auto-generated)
   - `project_branding.h` - Project branding defines (`PROJECT_NAME`, `PROJECT_DISPLAY_NAME`) (auto-generated)
   - `config_manager.cpp/h` - NVS configuration storage
@@ -38,11 +38,10 @@ This repository is a **project-specific firmware** for a single target board and
   - Template system: `_header.html`, `_nav.html`, `_footer.html` for DRY
 - **Output**: Compiled binaries in `./build/<board-name>/` directories
 - **Board Targets**: Multi-board support via `FQBN_TARGETS` associative array in `config.sh`
-  - Board name → FQBN mapping allows multiple board variants with same FQBN
-  - `["esp32-nodisplay"]="esp32:esp32:esp32"` → `build/esp32-nodisplay/` (ESP32 Dev Module, no display)
-  - `["esp32c3-waveshare-169-st7789v2"]="esp32:esp32:nologo_esp32c3_super_mini:CDCOnBoot=cdc"` → `build/esp32c3-waveshare-169-st7789v2/` (ESP32-C3 Super Mini + Waveshare 1.69" ST7789V2 240x280)
-  - `["esp32c6"]="esp32:esp32:esp32c6:CDCOnBoot=cdc"` → `build/esp32c6/` (ESP32-C6 Dev Module)
-  - `["cyd-v2"]="esp32:esp32:esp32"` → `build/cyd-v2/` (CYD v2 - same FQBN as esp32, different config)
+  - Board name → FQBN mapping controls script arguments and `build/<board-name>/` output directories
+  - The canonical list of supported boards lives in `config.sh` (or optional `config.project.sh`)
+  - Current example target:
+    - `["esp32s2-photoframe-it8951"]="esp32:esp32:esp32s2:CDCOnBoot=default,PartitionScheme=no_fs,PSRAM=enabled"`
 
 ## Critical Developer Workflows
 
@@ -57,20 +56,17 @@ This repository is a **project-specific firmware** for a single target board and
 ./build.sh
 
 # Or build specific board
-./build.sh esp32-nodisplay                   # Compile for ESP32 Dev Module (no display)
-./build.sh esp32c3-waveshare-169-st7789v2    # Compile for ESP32-C3 Super Mini + Waveshare 1.69" ST7789V2
-./build.sh esp32c6      # Compile for ESP32-C6 Dev Module
+./build.sh esp32s2-photoframe-it8951
 
 # Upload (board name required when multiple boards configured)
-./upload.sh esp32-nodisplay                   # Auto-detects /dev/ttyUSB0 or /dev/ttyACM0
-./upload.sh esp32c3-waveshare-169-st7789v2    # Auto-detects /dev/ttyUSB0 or /dev/ttyACM0
+./upload.sh esp32s2-photoframe-it8951         # Auto-detects /dev/ttyUSB0 or /dev/ttyACM0
 
 # Monitor
 ./monitor.sh            # Serial monitor at 115200 baud
 
 # Convenience scripts
-./bum.sh esp32-nodisplay                   # Build + Upload + Monitor
-./um.sh esp32c3-waveshare-169-st7789v2    # Upload + Monitor
+./bum.sh esp32s2-photoframe-it8951            # Build + Upload + Monitor
+./um.sh esp32s2-photoframe-it8951             # Upload + Monitor
 ```
 
 All scripts use absolute paths via `SCRIPT_DIR` resolution - they work from any directory.
@@ -172,34 +168,32 @@ See `docs/wsl-development.md` for complete USB/IP setup guide.
 ### Source
 - `src/app/app.ino` - Main sketch file (standard Arduino structure)
 - `src/app/board_config.h` - Default board configuration (LED pins, WiFi settings)
-- `src/app/png_assets.cpp/h` - Generated LVGL PNG assets (auto-generated when `assets/png/*.png` exists and building a display-enabled board)
-- `src/boards/[board-name]/board_overrides.h` - Optional board-specific compile-time configuration
-- `src/app/web_portal.cpp/h` - Async web server and REST API endpoints
+- `src/app/png_assets.cpp/h` - Legacy LVGL assets stub (LVGL removed; kept to avoid build errors)
+- `src/boards/[board-name]/board_overrides.h` - Per-board compile-time configuration
+- `src/app/config_manager.cpp/h` - NVS-based configuration storage
+- `src/app/mqtt_manager.cpp/h` - MQTT client (PubSubClient) + publish loop
+- `src/app/ha_discovery.cpp/h` - Home Assistant discovery payloads
+- `src/app/device_telemetry.cpp/h` - Health stats and telemetry (used by `/api/health`)
+- `src/app/log_manager.cpp/h` - Centralized logging helpers
+- `src/app/blob_pull.cpp/h` - Azure Blob pull-on-wake support
+- `src/app/sd_storage_service.cpp/h` - SD init + file IO helpers
+- `src/app/sd_photo_picker.cpp/h` - Image selection logic
+- `src/app/image_render_service.cpp/h` - Image render pipeline (decode/convert/present)
 - `src/app/web_assets.h` - Embedded HTML/CSS/JS from `src/app/web/` (auto-generated)
 - `src/app/project_branding.h` - Project branding defines (`PROJECT_NAME`, `PROJECT_DISPLAY_NAME`) (auto-generated)
-- `src/app/config_manager.cpp/h` - NVS-based configuration storage
-- `src/app/display_driver.h` - Display HAL interface with configureLVGL() hook
-- `src/app/display_manager.cpp/h` - Display lifecycle, LVGL init, FreeRTOS rendering task
-- `src/app/touch_driver.h` - Touch HAL interface
-- `src/app/touch_manager.cpp/h` - Touch input device registration and calibration
+- `src/app/web_portal*.cpp/h` - Async web server + REST API endpoints (split across modules)
+- `src/app/display_driver.h` - Display HAL interface (packed G4 full/region presents)
+- `src/app/display_manager.cpp/h` - Display lifecycle + screen registry
 - `src/app/display_drivers.cpp` - Display driver compilation unit (selected driver `.cpp` includes live here)
-- `src/app/touch_drivers.cpp` - Touch driver compilation unit (selected driver `.cpp` includes live here)
-- `src/app/drivers/tft_espi_driver.cpp/h` - TFT_eSPI display driver (hardware rotation)
-- `src/app/drivers/st7789v2_driver.cpp/h` - ST7789V2 native SPI driver (software rotation)
-- `src/app/drivers/xpt2046_driver.cpp/h` - XPT2046 resistive touch driver
-- `src/app/drivers/arduino_gfx_driver.cpp/h` - Arduino_GFX display backend (AXS15231B QSPI)
-- `src/app/drivers/axs15231b_touch_driver.cpp/h` - AXS15231B touch backend wrapper
-- `src/app/drivers/axs15231b/vendor/AXS15231B_touch.cpp/h` - Vendored AXS15231B touch implementation (driver-scoped vendor code)
-- `src/app/drivers/README.md` - Driver selection conventions + generated board→drivers table
+- `src/app/drivers/it8951_display_driver.cpp/h` - IT8951 DisplayDriver implementation
+- `src/app/it8951_renderer.cpp/h` - GxEPD2-backed IT8951 present path (full + region)
+- `src/app/drivers/README.md` - Display driver conventions (touch removed)
 - `src/app/screens/screen.h` - Screen base class interface
 - `src/app/screens/splash_screen.cpp/h` - Boot splash with animated spinner
-- `src/app/screens/info_screen.cpp/h` - Device info and real-time stats
-- `src/app/screens/test_screen.cpp/h` - Display calibration and color testing
-- `src/app/screens.cpp` - Screen compilation unit (includes all screen .cpp files)
 - `src/app/web/_header.html` - Common HTML head template
 - `src/app/web/_nav.html` - Navigation tabs and loading overlay wrapper
 - `src/app/web/_footer.html` - Form buttons template
-- `src/app/web/home.html` - Home page (Hello World + Sample Settings)
+- `src/app/web/home.html` - Home page (config + SD image management)
 - `src/app/web/network.html` - Network configuration page
 - `src/app/web/firmware.html` - Firmware page (online update, manual upload, factory reset)
 - `src/app/web/portal.css` - Styles (gradients, animations, responsive grid)
@@ -208,6 +202,10 @@ See `docs/wsl-development.md` for complete USB/IP setup guide.
 
 ### Documentation
 - docs/logging-guidelines.md - Logging rules and format (LOGx macros, severity, modules)
+- docs/display-performance-poc.md - Display pipeline performance notes for iT8951
+- docs/web-portal.md - Web portal architecture + REST API
+- docs/home-assistant-mqtt.md - Home Assistant MQTT integration notes
+- docs/wiring.md - Wiring diagrams
 
 ### Tools
 - `tools/minify-web-assets.sh` - Minifies and embeds web assets into `web_assets.h`
@@ -216,12 +214,11 @@ See `docs/wsl-development.md` for complete USB/IP setup guide.
   - Gzips all assets for efficient storage
   - Excludes template fragments (files starting with `_`)
 
-- `tools/png2lvgl_assets.py` - Converts `assets/png/*.png` into LVGL `lv_img_dsc_t` symbols (requires Python + Pillow)
-
-- `tools/generate-board-driver-table.py` - Generates the board→drivers table from `src/boards/*/board_overrides.h`
-- `tools/generate-board-driver-table.py` - Generates the board→drivers table from `src/boards/*/board_overrides.h`
-  - Auto-discovers available display/touch backends from `src/app/display_drivers.cpp` and `src/app/touch_drivers.cpp`
-  - `python3 tools/generate-board-driver-table.py --update-drivers-readme`
+- `tools/jpg_to_g4.py` - Convert photos to packed G4 assets for e-ink
+- `tools/sync_images_to_device.py` - Sync a folder of images to the device
+- `tools/upload_image.py` - Upload a single image to the device
+- `tools/parse_esp32_partitions.py` - Inspect partition tables
+- `tools/extract-changelog.sh` - Extract release notes from `CHANGELOG.md`
 
 ### Configuration
 - `config.sh` - Project paths, FQBN_TARGETS array, and helper functions
@@ -238,6 +235,8 @@ See `docs/wsl-development.md` for complete USB/IP setup guide.
   - `ArduinoJson@7.2.1` - JSON serialization for REST API
   - `ESP Async WebServer@3.9.0` - Non-blocking web server
   - `Async TCP@3.4.9` - Async TCP dependency
+  - `PubSubClient@2.8` - MQTT
+  - `GxEPD2@1.6.5` - IT8951 e-ink driver backend
 
 ### Library Commands
 ```bash
@@ -375,7 +374,8 @@ After every significant change, the agent must:
 2. **Check if documentation needs updates** by reviewing:
    - `README.md` - Main project documentation
    - `docs/web-portal.md` - Web portal and REST API guide
-   - `docs/display-touch-architecture.md` - Display/touch HAL and screen architecture
+  - `docs/display-performance-poc.md` - Display pipeline performance notes for iT8951
+  - `src/app/drivers/README.md` - Display driver conventions (touch removed)
    - `docs/scripts.md` - Script usage guide
    - `docs/library-management.md` - Library management guide
    - `docs/build-and-release-process.md` - Project branding, build system, and release workflow guide
@@ -409,8 +409,8 @@ After every significant change, the agent must:
 - New requirement added → Update `README.md` prerequisites
 - REST API endpoint added/changed → Update `docs/web-portal.md` and `README.md` API table
 - Web UI feature changed → Update `docs/web-portal.md` features section
-- Display/touch driver added/changed → Update `docs/display-touch-architecture.md` driver sections
-- Screen management changed → Update `docs/display-touch-architecture.md` screen lifecycle
+- Display driver added/changed → Update `src/app/drivers/README.md` and (if relevant) `docs/display-performance-poc.md`
+- Screen management changed → Update `src/app/screens/` docs/comments as needed and keep `/api/info` screen registry consistent
 - New version released → Update `CHANGELOG.md` with changes, update `src/version.h` with new version number
 - Release process changed → Update `docs/build-and-release-process.md` with new workflow
 
@@ -427,16 +427,12 @@ If the build fails:
 - Check library dependencies in `arduino-libraries.txt`
 - Verify Arduino code syntax and ESP32 compatibility
 
-## Display/Touch Driver Conventions (v1)
+## Display Driver Conventions (IT8951)
 
-- **Single source of defaults**: default `DISPLAY_DRIVER` / `TOUCH_DRIVER` live in `src/app/board_config.h`.
-- **Per-board selection**: each board override should have a clear **Driver Selection (HAL)** block that explicitly sets the HAL selectors:
-  - `#define DISPLAY_DRIVER DISPLAY_DRIVER_...`
-  - `#define TOUCH_DRIVER TOUCH_DRIVER_...` (or `#define HAS_TOUCH false`)
-- **Direct vs Buffered**:
-  - Direct drivers push pixels during the LVGL flush callback.
-  - Buffered drivers return `renderMode() == Buffered` and implement `present()`.
-- **Arduino build limitation**: do not include driver `.cpp` files in manager files; add conditional includes to `src/app/display_drivers.cpp` or `src/app/touch_drivers.cpp` instead.
-- **Board→driver visibility**: after editing board overrides, regenerate the table in `src/app/drivers/README.md`:
-  - `python3 tools/generate-board-driver-table.py --update-drivers-readme`
-- **Vendored code placement**: third-party source that is not an Arduino library should live under the driver that uses it (driver-scoped vendor code), not in a shared `drivers/vendor/` bucket.
+- **Single source of defaults**: default `DISPLAY_DRIVER` lives in `src/app/board_config.h`.
+- **Per-board selection**: each board override should have a clear **Driver Selection (HAL)** block that explicitly sets:
+  - `#define DISPLAY_DRIVER DISPLAY_DRIVER_IT8951`
+- **Arduino build limitation**: keep conditional `.cpp` includes in `src/app/display_drivers.cpp` (don’t include driver `.cpp` from manager files).
+- **Present semantics**: drivers present packed 4bpp (G4) buffers via `presentG4Full()` / `presentG4Region()`.
+- **Implementation split**: `src/app/drivers/it8951_display_driver.*` is the HAL shim; `src/app/it8951_renderer.*` contains the GxEPD2-backed IT8951 present path.
+- **Touch**: touch drivers have been removed for this project; don’t reintroduce touch abstractions unless explicitly needed.
