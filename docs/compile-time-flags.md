@@ -21,7 +21,7 @@ This document is a template. Sections marked with `COMPILE_FLAG_REPORT` markers 
 ## Flags (generated)
 
 <!-- BEGIN COMPILE_FLAG_REPORT:FLAGS -->
-Total flags: 39
+Total flags: 43
 
 ### Features (HAS_*)
 
@@ -63,12 +63,14 @@ Total flags: 39
 - **EINK_MIN_PRESENT_INTERVAL_MS** default: `1000` — Minimum interval between e-ink refreshes.
 - **HEALTH_HISTORY_PERIOD_MS** default: `5000` — Sampling cadence for the device-side history (ms). Default aligns with UI poll.
 - **MEMORY_TRIPWIRE_INTERNAL_MIN_BYTES** default: `0` — Default: disabled (0). Enable per-board if you want early warning logs.
+- **SD_SPI_FREQUENCY_HZ** default: `80000000` — 80MHz is optimistic and some breakouts/cards will fail; override per-board.
 - **WEB_PORTAL_CONFIG_BODY_TIMEOUT_MS** default: `5000` — Timeout for an incomplete /api/config upload (ms) before freeing the buffer.
 - **WEB_PORTAL_CONFIG_MAX_JSON_BYTES** default: `4096` — Max JSON body size accepted by /api/config.
 - **WIFI_MAX_ATTEMPTS** default: `3` — Maximum WiFi connection attempts at boot before falling back.
 
 ### Other
 
+- **DEFAULT_ALWAYS_ON** default: `false` — Useful for boards where boot-time button/EXT1 wake isn't wired.
 - **ESP_PANEL_SWAPBUF_PREFER_INTERNAL** default: `true` — Default: true. Some panel buses are more reliable with internal/DMA-capable buffers.
 - **HEALTH_HISTORY_ENABLED** default: `1` — Default: enabled.
 - **HEALTH_HISTORY_SAMPLES** default: `((HEALTH_HISTORY_SECONDS * 1000) / HEALTH_HISTORY_PERIOD_MS)` — Derived number of samples.
@@ -78,7 +80,9 @@ Total flags: 39
 - **LED_ACTIVE_HIGH** default: `true` — LED polarity: true if HIGH turns the LED on.
 - **MEMORY_TRIPWIRE_CHECK_INTERVAL_MS** default: `5000` — How often to check tripwires from the main loop.
 - **PROJECT_DISPLAY_NAME** default: `"ESP32 Device"` — Human-friendly project name used in the web UI and device name (can be set by build system).
+- **SD_USE_ARDUINO_SPI** default: `false` — Set this when SD shares the same SCK/MISO/MOSI pins as the display.
 - **TFT_BACKLIGHT_PWM_CHANNEL** default: `0` — LEDC channel used for backlight PWM.
+- **TOUCH_WAKE_PAD** default: `-1` — Example (ESP32-S2): 6 for TOUCH06.
 <!-- END COMPILE_FLAG_REPORT:FLAGS -->
 
 ## Board Matrix: Features (generated)
@@ -89,6 +93,7 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 | board-name | HAS_BACKLIGHT | HAS_BUILTIN_LED | HAS_MQTT |
 | --- | --- | --- | --- |
 | esp32s2-photoframe-it8951 |  |  | ✅ |
+| feathers3d |  | ✅ | ✅ |
 <!-- END COMPILE_FLAG_REPORT:MATRIX_FEATURES -->
 
 ## Board Matrix: Selectors (generated)
@@ -97,6 +102,7 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 | board-name | DISPLAY_DRIVER |
 | --- | --- |
 | esp32s2-photoframe-it8951 | DISPLAY_DRIVER_IT8951 |
+| feathers3d | DISPLAY_DRIVER_IT8951 |
 <!-- END COMPILE_FLAG_REPORT:MATRIX_SELECTORS -->
 
 ## Usage Map (preprocessor only, generated)
@@ -125,6 +131,8 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/board_config.h
   - src/app/display_drivers.cpp
   - src/app/display_manager.cpp
+- **DEFAULT_ALWAYS_ON**
+  - src/app/board_config.h
 - **DISPLAY_HEIGHT**
   - src/app/board_config.h
 - **DISPLAY_POWER_EN_PIN**
@@ -151,6 +159,8 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/board_config.h
 - **HEALTH_POLL_INTERVAL_MS**
   - src/app/board_config.h
+- **IT8951_CS_PIN**
+  - src/app/sd_photo_picker.cpp
 - **IT8951_MISO_PIN**
   - src/app/it8951_renderer.cpp
 - **IT8951_MOSI_PIN**
@@ -170,7 +180,16 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/device_telemetry.cpp
 - **PROJECT_DISPLAY_NAME**
   - src/app/board_config.h
+- **SD_SPI_FREQUENCY_HZ**
+  - src/app/board_config.h
+- **SD_USE_ARDUINO_SPI**
+  - src/app/app.ino
+  - src/app/board_config.h
+  - src/app/sd_photo_picker.cpp
 - **TFT_BACKLIGHT_PWM_CHANNEL**
+  - src/app/board_config.h
+- **TOUCH_WAKE_PAD**
+  - src/app/app.ino
   - src/app/board_config.h
 - **WAKE_BUTTON2_PIN**
   - src/app/app.ino

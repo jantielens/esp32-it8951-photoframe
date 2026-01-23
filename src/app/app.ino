@@ -26,15 +26,18 @@
 #include <driver/rtc_io.h>
 #include <time.h>
 static constexpr uint32_t kDefaultSleepSeconds = 60;
-static constexpr uint32_t kSdFrequencyHz = 80000000;
+static constexpr uint32_t kSdFrequencyHz = SD_SPI_FREQUENCY_HZ;
 static constexpr uint16_t kDefaultLongPressMs = 1500;
 static constexpr uint8_t kButtonActiveLevel = LOW;
 static constexpr uint32_t kButtonDebounceMs = 30;
-static constexpr uint8_t kTouchGpio = 6; // TOUCH06 -> GPIO6 on ESP32-S2
 static constexpr uint32_t kNoImageRetryMs = 5000;
 static constexpr time_t kValidEpochThreshold = 1609459200; // 2021-01-01T00:00:00Z
 
+#if SD_USE_ARDUINO_SPI
+static SPIClass &sdSpi = SPI;
+#else
 static SPIClass sdSpi(HSPI);
+#endif
 
 static const SdCardPins kSdPins = {
   .cs = SD_CS_PIN,
@@ -233,8 +236,10 @@ static void enter_deep_sleep(uint32_t sleep_seconds) {
     esp_sleep_enable_ext1_wakeup(ext1_mask, mode);
   }
 
+  #if (TOUCH_WAKE_PAD >= 0)
   TouchWakeConfig touch_config;
-  input_manager_enable_touch_wakeup(kTouchGpio, touch_config);
+  input_manager_enable_touch_wakeup((uint8_t)TOUCH_WAKE_PAD, touch_config);
+  #endif
   esp_deep_sleep_start();
 }
 
@@ -401,7 +406,9 @@ void setup() {
   log_init(115200);
   delay(200);
   LOGI("Boot", "Boot");
+  const esp_reset_reason_t reset_reason = esp_reset_reason();
   const esp_sleep_wakeup_cause_t wake_cause = esp_sleep_get_wakeup_cause();
+  LOGI("Boot", "Reset reason=%d", (int)reset_reason);
   LOGI("Boot", "Wake cause=%d", (int)wake_cause);
 
   // Ensure display boost EN is in a known state early.
@@ -455,7 +462,8 @@ void setup() {
 
   // In SleepCycle mode we avoid initializing the display UI during WiFi activity.
   // Rendering is handled by the render service later (directly to the IT8951).
-  if (!decision.quiet_ui && decision.mode != BootMode::SleepCycle) {
+  const bool cold_boot = (reset_reason != ESP_RST_DEEPSLEEP);
+  if (!decision.quiet_ui && (decision.mode != BootMode::SleepCycle || cold_boot)) {
     display_manager_init(&config);
     {
       char status[64];

@@ -57,6 +57,7 @@ PROJECT_DISPLAY_NAME="ESP32 Photoframe IT8951"
 
 declare -A FQBN_TARGETS=(
     ["esp32s2-photoframe-it8951"]="esp32:esp32:esp32s2:CDCOnBoot=default,PartitionScheme=no_fs,PSRAM=enabled"
+    ["feathers3d"]="esp32:esp32:um_feathers3:USBMode=hwcdc,CDCOnBoot=cdc,UploadMode=cdc,PartitionScheme=default_16MB,PSRAM=enabled"
 )
 
 # Default board (used when only one board is configured)

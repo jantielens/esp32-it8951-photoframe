@@ -70,6 +70,42 @@
 #endif
 
 // ============================================================================
+// SD Card (SPI)
+// ============================================================================
+// SPI clock used for SD.begin(..., frequency_hz).
+// 80MHz is optimistic and some breakouts/cards will fail; override per-board.
+#ifndef SD_SPI_FREQUENCY_HZ
+#define SD_SPI_FREQUENCY_HZ 80000000
+#endif
+
+// If true, use the global `SPI` instance for SD instead of a separate SPI peripheral.
+// Set this when SD shares the same SCK/MISO/MOSI pins as the display.
+#ifndef SD_USE_ARDUINO_SPI
+#define SD_USE_ARDUINO_SPI false
+#endif
+
+// ============================================================================
+// Default Boot/Power Behavior
+// ============================================================================
+// Default for DeviceConfig.always_on when no NVS config exists yet.
+// Useful for boards where boot-time button/EXT1 wake isn't wired.
+#ifndef DEFAULT_ALWAYS_ON
+#define DEFAULT_ALWAYS_ON false
+#endif
+
+// ============================================================================
+// Optional: Touch Wake (deep sleep)
+// ============================================================================
+// Touch wake is disabled by default because touch pads vary per MCU/board and
+// a misconfigured pad can cause immediate wake loops.
+//
+// Set this in a board override to a valid touch pad index (NOT a GPIO number).
+// Example (ESP32-S2): 6 for TOUCH06.
+#ifndef TOUCH_WAKE_PAD
+#define TOUCH_WAKE_PAD -1
+#endif
+
+// ============================================================================
 // Additional Default Configuration Settings
 // ============================================================================
 // Add new hardware features here using #ifndef guards to allow board-specific

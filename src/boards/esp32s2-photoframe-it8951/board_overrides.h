@@ -72,4 +72,10 @@
 // RTC-capable on ESP32-S2 (0-21).
 #define WAKE_BUTTON2_PIN 17
 
+// ---------------------------------------------------------------------------
+// Touch wake (deep sleep)
+// ---------------------------------------------------------------------------
+// ESP32-S2 touch pad index (TOUCH06).
+#define TOUCH_WAKE_PAD 6
+
 #endif // BOARD_OVERRIDES_PHOTOFRAME_IT8951_H

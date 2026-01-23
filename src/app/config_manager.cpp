@@ -117,7 +117,9 @@ bool config_manager_load(DeviceConfig *config) {
 
     LOGI("Config", "Load start");
 
-    if (!preferences.begin(CONFIG_NAMESPACE, true)) { // Read-only mode
+    // Use read-write mode here: on a fresh flash the namespace doesn't exist yet
+    // and Preferences.begin(..., true) (read-only) will fail.
+    if (!preferences.begin(CONFIG_NAMESPACE, false)) {
         LOGE("Config", "Preferences begin failed");
         return false;
     }
@@ -133,7 +135,7 @@ bool config_manager_load(DeviceConfig *config) {
         config->sleep_timeout_seconds = 60;
         strlcpy(config->image_selection_mode, "random", CONFIG_IMAGE_SELECTION_MODE_MAX_LEN);
         config->long_press_ms = 1500;
-        config->always_on = false;
+        config->always_on = DEFAULT_ALWAYS_ON;
         config->mqtt_port = 0;
         config->mqtt_interval_seconds = 0;
 
@@ -176,7 +178,7 @@ bool config_manager_load(DeviceConfig *config) {
         strlcpy(config->image_selection_mode, "random", CONFIG_IMAGE_SELECTION_MODE_MAX_LEN);
     }
     config->long_press_ms = preferences.getUShort(KEY_LONG_PRESS, 1500);
-    config->always_on = preferences.getBool(KEY_ALWAYS_ON, false);
+    config->always_on = preferences.getBool(KEY_ALWAYS_ON, DEFAULT_ALWAYS_ON);
 
     // Load MQTT settings (all optional)
     preferences.getString(KEY_MQTT_HOST, config->mqtt_host, CONFIG_MQTT_HOST_MAX_LEN);

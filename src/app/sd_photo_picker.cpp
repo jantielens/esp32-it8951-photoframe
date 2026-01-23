@@ -1,5 +1,6 @@
 #include "sd_photo_picker.h"
 
+#include "board_config.h"
 #include "log_manager.h"
 
 #include <ctype.h>
@@ -9,6 +10,12 @@
 static constexpr size_t kMaxG4NameLen = 127;
 static constexpr uint32_t kInvalidIndex = 0xFFFFFFFFu;
 static constexpr uint32_t kNoG4LogIntervalMs = 60000;
+
+static void drive_cs_high(int pin) {
+    if (pin < 0) return;
+    pinMode(pin, OUTPUT);
+    digitalWrite(pin, HIGH);
+}
 
 static bool ends_with_bmp_case_insensitive(const char *name) {
     if (!name) return false;
@@ -30,13 +37,47 @@ bool sd_photo_picker_init(SPIClass &spi, const SdCardPins &pins, uint32_t freque
         delay(50);
     }
 
+    // Ensure all SPI devices are deselected before attempting card init.
+    // On shared SPI buses, a floating/LOW CS can prevent SD from responding.
+    drive_cs_high(pins.cs);
+    #if SD_USE_ARDUINO_SPI && defined(IT8951_CS_PIN)
+    drive_cs_high(IT8951_CS_PIN);
+    #endif
     spi.begin(pins.sck, pins.miso, pins.mosi, pins.cs);
-    if (!SD.begin(pins.cs, spi, frequency_hz)) {
-        LOG_DURATION("SD", "Begin", start_ms);
-        return false;
+
+    // Reset any previous SD state before reinitializing.
+    SD.end();
+
+    const uint32_t freqs[] = {
+        frequency_hz,
+        10000000,
+        4000000,
+        1000000,
+    };
+
+    for (size_t i = 0; i < (sizeof(freqs) / sizeof(freqs[0])); i++) {
+        const uint32_t f = freqs[i];
+        if (f == 0) continue;
+        if (i > 0 && f == freqs[i - 1]) continue;
+
+        if (SD.begin(pins.cs, spi, f)) {
+            const uint8_t card_type = SD.cardType();
+            const uint64_t card_size = SD.cardSize();
+            LOGI("SD", "Card type=%u size=%lluMB",
+                 (unsigned)card_type,
+                 (unsigned long long)(card_size / (1024ULL * 1024ULL)));
+            LOG_DURATION("SD", "Begin", start_ms);
+            return true;
+        }
+
+        SD.end();
+        delay(10);
     }
+
     LOG_DURATION("SD", "Begin", start_ms);
-    return true;
+    LOGE("SD", "Init failed: pins CS=%d SCK=%d MISO=%d MOSI=%d",
+         pins.cs, pins.sck, pins.miso, pins.mosi);
+    return false;
 }
 
 bool sd_pick_random_bmp(char *out_path, size_t out_len) {
