@@ -55,6 +55,12 @@ void ha_discovery_publish_health(MqttManager &mqtt) {
 
     publish_sensor_config(mqtt, "battery_voltage", "Battery Voltage", "{{ value_json.battery_voltage }}", "V", "voltage", "measurement", "diagnostic");
 
+    publish_sensor_config(mqtt, "battery_soc", "Battery SoC", "{{ value_json.battery_soc }}", "%", "battery", "measurement", "diagnostic");
+    publish_sensor_config(mqtt, "battery_crate_pct_per_hour", "Battery C-Rate", "{{ value_json.battery_crate_pct_per_hour }}", "%/h", "", "measurement", "diagnostic");
+
+    publish_binary_sensor_config(mqtt, "usb_present", "USB Present", "{{ 'ON' if value_json.usb_present else 'OFF' }}", "plug", "diagnostic");
+    publish_sensor_config(mqtt, "power_source", "Power Source", "{{ value_json.power_source }}", "", "", "", "diagnostic");
+
     publish_sensor_config(mqtt, "flash_used", "Flash Used", "{{ value_json.flash_used }}", "B", "", "measurement", "diagnostic");
     publish_sensor_config(mqtt, "flash_total", "Flash Total", "{{ value_json.flash_total }}", "B", "", "measurement", "diagnostic");
 

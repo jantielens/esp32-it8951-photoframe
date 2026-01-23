@@ -16,6 +16,7 @@
 #include "rtc_mqtt_payload.h"
 #endif
 #include "display_manager.h"
+#include "max17048_fuel_gauge.h"
 #if HEALTH_HISTORY_ENABLED
 #include "health_history.h"
 #endif
@@ -429,6 +430,9 @@ void setup() {
   device_telemetry_init();
   device_telemetry_start_cpu_monitoring();
   device_telemetry_start_health_window_sampling();
+
+  // Board-specific optional sensors.
+  max17048_init();
 
   DeviceConfig config = {};
 

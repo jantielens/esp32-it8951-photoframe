@@ -44,7 +44,10 @@
 #define SD_CS_PIN 33
 
 // Optional SD power enable (HIGH = on). If not wired, leave disabled.
-#define SD_POWER_PIN -1
+// FeatherS3[D] has a user-controlled 2nd 3.3V regulator (LDO2) on IO39 that
+// automatically shuts down during deep sleep. If your SD card VCC is wired to
+// LDO2 3V3, keep this enabled so SD is powered only while awake.
+#define SD_POWER_PIN 39
 
 // SD cards + breakouts vary widely; start conservative for reliability.
 #define SD_SPI_FREQUENCY_HZ 20000000
@@ -93,5 +96,20 @@
 // Use a free GPIO that is NOT a strapping pin.
 // Chosen default: IO14 (A2).
 #define BUTTON_PIN 14
+
+// ---------------------------------------------------------------------------
+// Power / Battery
+// ---------------------------------------------------------------------------
+// FeatherS3[D] includes an on-board MAX17048 fuel gauge:
+//   I2C: SCL=IO9, SDA=IO8, INT=IO2
+#define HAS_FUEL_GAUGE 1
+#define FUEL_GAUGE_I2C_SCL_PIN 9
+#define FUEL_GAUGE_I2C_SDA_PIN 8
+#define FUEL_GAUGE_INT_PIN 2
+
+// USB/VBUS detect ("Detect 5V present") on IO34.
+#define HAS_VBUS_SENSE 1
+#define VBUS_SENSE_PIN 34
+#define VBUS_SENSE_ACTIVE_HIGH true
 
 #endif // BOARD_OVERRIDES_FEATHERS3D_IT8951_H

@@ -21,13 +21,15 @@ This document is a template. Sections marked with `COMPILE_FLAG_REPORT` markers 
 ## Flags (generated)
 
 <!-- BEGIN COMPILE_FLAG_REPORT:FLAGS -->
-Total flags: 43
+Total flags: 50
 
 ### Features (HAS_*)
 
 - **HAS_BACKLIGHT** default: `false` — Enable backlight control (typically via PWM).
 - **HAS_BUILTIN_LED** default: `false` — Enable built-in status LED support.
+- **HAS_FUEL_GAUGE** default: `0` — Other boards typically don't; keep disabled by default.
 - **HAS_MQTT** default: `true` — Enable MQTT and Home Assistant integration.
+- **HAS_VBUS_SENSE** default: `0` — Optional: USB / VBUS Detect
 
 ### Selectors (*_DRIVER)
 
@@ -43,6 +45,9 @@ Total flags: 43
 
 - **BUTTON_PIN** default: `(no default)` — Button (wakeup + long press)
 - **DISPLAY_POWER_EN_PIN** default: `(no default)` — Uses an RTC-capable GPIO so we can hold it LOW in deep sleep.
+- **FUEL_GAUGE_I2C_SCL_PIN** default: `-1` — Fuel gauge I2C SCL GPIO number.
+- **FUEL_GAUGE_I2C_SDA_PIN** default: `-1` — Fuel gauge I2C SDA GPIO number.
+- **FUEL_GAUGE_INT_PIN** default: `-1` — Optional MAX17048 interrupt pin (active-low open-drain alert). Not required for polling.
 - **IT8951_BUSY_PIN** default: `(no default)` — IT8951 busy pin.
 - **IT8951_CS_PIN** default: `(no default)` — IT8951 chip select (CS).
 - **IT8951_DC_PIN** default: `(no default)` — IT8951 data/command pin (not present on this breakout).
@@ -56,6 +61,7 @@ Total flags: 43
 - **SD_MOSI_PIN** default: `(no default)` — SD card MOSI pin.
 - **SD_POWER_PIN** default: `(no default)` — SD card power enable pin (HIGH = on).
 - **SD_SCK_PIN** default: `(no default)` — SD card clock (SCK) pin.
+- **VBUS_SENSE_PIN** default: `-1` — VBUS sense GPIO number (reads whether USB/5V is present).
 - **WAKE_BUTTON2_PIN** default: `(no default)` — RTC-capable on ESP32-S2 (0-21).
 
 ### Limits & Tuning
@@ -83,6 +89,7 @@ Total flags: 43
 - **SD_USE_ARDUINO_SPI** default: `false` — Set this when SD shares the same SCK/MISO/MOSI pins as the display.
 - **TFT_BACKLIGHT_PWM_CHANNEL** default: `0` — LEDC channel used for backlight PWM.
 - **TOUCH_WAKE_PAD** default: `-1` — Example (ESP32-S2): 6 for TOUCH06.
+- **VBUS_SENSE_ACTIVE_HIGH** default: `true` — True when a HIGH reading means USB/VBUS is present.
 <!-- END COMPILE_FLAG_REPORT:FLAGS -->
 
 ## Board Matrix: Features (generated)
@@ -90,10 +97,10 @@ Total flags: 43
 Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 
 <!-- BEGIN COMPILE_FLAG_REPORT:MATRIX_FEATURES -->
-| board-name | HAS_BACKLIGHT | HAS_BUILTIN_LED | HAS_MQTT |
-| --- | --- | --- | --- |
-| esp32s2-photoframe-it8951 |  |  | ✅ |
-| feathers3d |  | ✅ | ✅ |
+| board-name | HAS_BACKLIGHT | HAS_BUILTIN_LED | HAS_FUEL_GAUGE | HAS_MQTT | HAS_VBUS_SENSE |
+| --- | --- | --- | --- | --- | --- |
+| esp32s2-photoframe-it8951 |  |  |  | ✅ |  |
+| feathers3d |  | ✅ | ✅ | ✅ | ✅ |
 <!-- END COMPILE_FLAG_REPORT:MATRIX_FEATURES -->
 
 ## Board Matrix: Selectors (generated)
@@ -116,6 +123,8 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/web_portal_routes.cpp
 - **HAS_BUILTIN_LED**
   - src/app/board_config.h
+- **HAS_FUEL_GAUGE**
+  - src/app/board_config.h
 - **HAS_MQTT**
   - src/app/app.ino
   - src/app/board_config.h
@@ -127,6 +136,9 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/mqtt_manager.h
   - src/app/rtc_mqtt_payload.cpp
   - src/app/rtc_mqtt_payload.h
+- **HAS_VBUS_SENSE**
+  - src/app/board_config.h
+  - src/app/device_telemetry.cpp
 - **DISPLAY_DRIVER**
   - src/app/board_config.h
   - src/app/display_drivers.cpp
@@ -144,6 +156,12 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
 - **EINK_MIN_PRESENT_INTERVAL_MS**
   - src/app/board_config.h
 - **ESP_PANEL_SWAPBUF_PREFER_INTERNAL**
+  - src/app/board_config.h
+- **FUEL_GAUGE_I2C_SCL_PIN**
+  - src/app/board_config.h
+- **FUEL_GAUGE_I2C_SDA_PIN**
+  - src/app/board_config.h
+- **FUEL_GAUGE_INT_PIN**
   - src/app/board_config.h
 - **HEALTH_HISTORY_ENABLED**
   - src/app/app.ino
@@ -190,6 +208,10 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/board_config.h
 - **TOUCH_WAKE_PAD**
   - src/app/app.ino
+  - src/app/board_config.h
+- **VBUS_SENSE_ACTIVE_HIGH**
+  - src/app/board_config.h
+- **VBUS_SENSE_PIN**
   - src/app/board_config.h
 - **WAKE_BUTTON2_PIN**
   - src/app/app.ino

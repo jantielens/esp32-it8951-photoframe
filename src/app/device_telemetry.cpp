@@ -18,6 +18,7 @@
 #include "mqtt_manager.h"
 #endif
 #include "display_manager.h"
+#include "max17048_fuel_gauge.h"
 
 // Temperature sensor support (ESP32-C3, ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C6, ESP32-H2)
 #if SOC_TEMP_SENSOR_SUPPORTED
@@ -527,8 +528,31 @@ void device_telemetry_fill_api(JsonDocument &doc) {
     // doc["temperature"] = 23.4;
     // doc["humidity"] = 55.2;
 
-    // Temporary battery voltage placeholder (volts).
-    doc["battery_voltage"] = 3.5;
+    // Battery / power (optional): MAX17048 fuel gauge + VBUS detect.
+    {
+        Max17048Reading r = {};
+        if (max17048_read(&r)) {
+            doc["battery_voltage"] = r.voltage_v;
+            doc["battery_soc"] = r.soc_percent;
+            doc["battery_crate_pct_per_hour"] = r.crate_percent_per_hour;
+        } else {
+            // KISS: publish explicit nulls when unavailable.
+            doc["battery_voltage"] = nullptr;
+            doc["battery_soc"] = nullptr;
+            doc["battery_crate_pct_per_hour"] = nullptr;
+        }
+
+        #if HAS_VBUS_SENSE
+        pinMode(VBUS_SENSE_PIN, INPUT);
+        const bool raw = (digitalRead(VBUS_SENSE_PIN) != 0);
+        const bool usb_present = VBUS_SENSE_ACTIVE_HIGH ? raw : !raw;
+        doc["usb_present"] = usb_present;
+        doc["power_source"] = usb_present ? "usb" : "battery";
+        #else
+        doc["usb_present"] = nullptr;
+        doc["power_source"] = nullptr;
+        #endif
+    }
 }
 
 void device_telemetry_fill_mqtt(JsonDocument &doc) {
@@ -567,8 +591,31 @@ void device_telemetry_fill_mqtt(JsonDocument &doc) {
     // doc["temperature"] = 23.4;
     // doc["humidity"] = 55.2;
 
-    // Temporary battery voltage placeholder (volts).
-    doc["battery_voltage"] = 3.5;
+    // Battery / power (optional): MAX17048 fuel gauge + VBUS detect.
+    {
+        Max17048Reading r = {};
+        if (max17048_read(&r)) {
+            doc["battery_voltage"] = r.voltage_v;
+            doc["battery_soc"] = r.soc_percent;
+            doc["battery_crate_pct_per_hour"] = r.crate_percent_per_hour;
+        } else {
+            // KISS: publish explicit nulls when unavailable.
+            doc["battery_voltage"] = nullptr;
+            doc["battery_soc"] = nullptr;
+            doc["battery_crate_pct_per_hour"] = nullptr;
+        }
+
+        #if HAS_VBUS_SENSE
+        pinMode(VBUS_SENSE_PIN, INPUT);
+        const bool raw = (digitalRead(VBUS_SENSE_PIN) != 0);
+        const bool usb_present = VBUS_SENSE_ACTIVE_HIGH ? raw : !raw;
+        doc["usb_present"] = usb_present;
+        doc["power_source"] = usb_present ? "usb" : "battery";
+        #else
+        doc["usb_present"] = nullptr;
+        doc["power_source"] = nullptr;
+        #endif
+    }
 }
 
 void device_telemetry_init() {

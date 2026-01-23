@@ -129,6 +129,48 @@
 //
 // #ifndef BUTTON_PIN
 // #define BUTTON_PIN 0
+
+// ============================================================================
+// Optional: Fuel Gauge (MAX17048)
+// ============================================================================
+// FeatherS3[D] includes an on-board MAX17048 fuel gauge (I2C 0x36).
+// Other boards typically don't; keep disabled by default.
+#ifndef HAS_FUEL_GAUGE
+#define HAS_FUEL_GAUGE 0
+#endif
+
+// I2C pins used for the fuel gauge (only used when HAS_FUEL_GAUGE=1).
+// Fuel gauge I2C SDA GPIO number.
+#ifndef FUEL_GAUGE_I2C_SDA_PIN
+#define FUEL_GAUGE_I2C_SDA_PIN -1
+#endif
+
+// Fuel gauge I2C SCL GPIO number.
+#ifndef FUEL_GAUGE_I2C_SCL_PIN
+#define FUEL_GAUGE_I2C_SCL_PIN -1
+#endif
+
+// Optional MAX17048 interrupt pin (active-low open-drain alert). Not required for polling.
+#ifndef FUEL_GAUGE_INT_PIN
+#define FUEL_GAUGE_INT_PIN -1
+#endif
+
+// ============================================================================
+// Optional: USB / VBUS Detect
+// ============================================================================
+#ifndef HAS_VBUS_SENSE
+#define HAS_VBUS_SENSE 0
+#endif
+
+// VBUS sense GPIO number (reads whether USB/5V is present).
+#ifndef VBUS_SENSE_PIN
+#define VBUS_SENSE_PIN -1
+#endif
+
+// True when a HIGH reading means USB/VBUS is present.
+#ifndef VBUS_SENSE_ACTIVE_HIGH
+#define VBUS_SENSE_ACTIVE_HIGH true
+#endif
 // #endif
 // Web Portal Health Widget
 // ============================================================================
