@@ -95,12 +95,27 @@ get_chip_type_from_fqbn() {
     #  - esp32:esp32:nologo_esp32c3_super_mini -> esp32c3
     local board_seg
     board_seg=$(echo "$fqbn" | cut -d':' -f3)
+
+    # Preferred: explicit esp32 family token embedded in board id.
+    # Examples: esp32s3, nologo_esp32c3_super_mini
     local chip
     chip=$(echo "$board_seg" | grep -oE 'esp32[a-z0-9]*' | head -n 1 || true)
-    if [[ -z "$chip" ]]; then
-        chip="esp32"
+    if [[ -n "$chip" ]]; then
+        echo "$chip"
+        return 0
     fi
-    echo "$chip"
+
+    # Fallback: some vendor board IDs (e.g. Unexpected Maker "um_feathers3")
+    # don't include the full "esp32s3" token. Heuristic map by family suffix.
+    case "$board_seg" in
+        *s3*|*S3*) echo "esp32s3" ;;
+        *s2*|*S2*) echo "esp32s2" ;;
+        *c6*|*C6*) echo "esp32c6" ;;
+        *c3*|*C3*) echo "esp32c3" ;;
+        *c2*|*C2*) echo "esp32c2" ;;
+        *h2*|*H2*) echo "esp32h2" ;;
+        *) echo "esp32" ;;
+    esac
 }
 
 default_esptool_baud_for_port() {
@@ -437,6 +452,7 @@ if [[ -n "$PARTITION_SCHEME" ]]; then
 fi
 
 CHIP_TYPE=$(get_chip_type_from_fqbn "$FQBN")
+echo "Chip:  $CHIP_TYPE"
 ESPTOOL_CMD=""
 if [[ "$MODE" == "full" || "$MODE" == "app-only" || "$MODE" == "merged" || "$ERASE_FLASH" == "true" || "$ERASE_NVS" == "true" ]]; then
     ESPTOOL_CMD=$(find_esptool || true)

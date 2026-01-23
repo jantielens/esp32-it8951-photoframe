@@ -18,10 +18,23 @@ ARDUINO_CLI=$(find_arduino_cli)
 # Parse board and port arguments
 parse_board_and_port_args "$@"
 
-# Extract chip type from FQBN (2nd segment is platform, use that for chip type)
-CHIP_TYPE=$(echo "$FQBN" | cut -d':' -f3 | grep -oE 'esp32[a-z0-9]*' | head -n1)
+# Extract chip type from FQBN (3rd segment is board id)
+BOARD_SEG=$(echo "$FQBN" | cut -d':' -f3)
+
+# Preferred: explicit esp32 family token embedded in board id.
+CHIP_TYPE=$(echo "$BOARD_SEG" | grep -oE 'esp32[a-z0-9]*' | head -n 1 || true)
+
+# Fallback: vendor board IDs (e.g. "um_feathers3") may not include "esp32s3".
 if [[ -z "$CHIP_TYPE" ]]; then
-    CHIP_TYPE="esp32"  # Default fallback
+    case "$BOARD_SEG" in
+        *s3*|*S3*) CHIP_TYPE="esp32s3" ;;
+        *s2*|*S2*) CHIP_TYPE="esp32s2" ;;
+        *c6*|*C6*) CHIP_TYPE="esp32c6" ;;
+        *c3*|*C3*) CHIP_TYPE="esp32c3" ;;
+        *c2*|*C2*) CHIP_TYPE="esp32c2" ;;
+        *h2*|*H2*) CHIP_TYPE="esp32h2" ;;
+        *) CHIP_TYPE="esp32" ;;
+    esac
 fi
 
 # Auto-detect port if not specified
