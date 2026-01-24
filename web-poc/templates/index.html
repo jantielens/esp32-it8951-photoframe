@@ -20,6 +20,16 @@
       table { width: 100%; border-collapse: collapse; margin-top: 12px; }
       th, td { text-align: left; padding: 10px; border-top: 1px solid #e5e7eb; vertical-align: middle; }
       th { font-size: 0.9rem; color: #374151; background: #f9fafb; }
+      .btn-sm { padding: 6px 10px; margin: 0; font-size: 0.85rem; }
+      .btn-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .panel { border: 1px solid #e5e7eb; background: #fbfcff; border-radius: 12px; padding: 14px; margin-top: 12px; }
+      .grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+      @media (min-width: 720px) { .grid { grid-template-columns: 1fr 1fr; } }
+      dialog { border: 1px solid #e5e7eb; border-radius: 12px; padding: 0; width: min(900px, 92vw); }
+      dialog::backdrop { background: rgba(0,0,0,0.35); }
+      .dialog-head { padding: 12px 14px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+      .dialog-body { padding: 12px 14px; }
+      pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-size: 0.85rem; background: #0b1020; color: #e5e7eb; padding: 12px; border-radius: 10px; overflow: auto; max-height: 65vh; }
       .thumb-wrap { width: 56px; height: 56px; border-radius: 10px; border: 1px solid #e5e7eb; background: #f3f4f6; overflow: hidden; }
       .thumb { width: 56px; height: 56px; border-radius: 10px; border: 1px solid #e5e7eb; background: #f3f4f6; object-fit: cover; }
       .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.8rem; border: 1px solid #e5e7eb; background: #fff; color: #374151; }
@@ -89,6 +99,7 @@
             <col style="width: 140px;" />
             <col style="width: 170px;" />
             <col style="width: 140px;" />
+            <col style="width: 170px;" />
           </colgroup>
           <thead>
             <tr>
@@ -97,12 +108,84 @@
               <th>Uploaded by</th>
               <th>State</th>
               <th>Expires in</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody id="twin-body">
-            <tr><td colspan="5" class="muted">Idle</td></tr>
+            <tr><td colspan="6" class="muted">Idle</td></tr>
           </tbody>
         </table>
+
+        <h2>Commands</h2>
+        <div class="muted">Queue commands for the selected device. Commands remain <b>Queued</b> until the device processes them and deletes the command blob.</div>
+
+        <div class="grid">
+          <div class="panel">
+            <div class="muted" style="margin-bottom: 10px;"><b>Device actions</b></div>
+            <div class="btn-row">
+              <button id="cmd-resync" type="button" class="btn-sm">Re-sync From Cloud</button>
+              <button id="cmd-reboot" type="button" class="btn-sm">Reboot Device</button>
+              <button id="cmd-config-portal" type="button" class="btn-sm">Enable Config Portal</button>
+            </div>
+
+            <div style="margin-top: 12px;">
+              <label for="rotation-seconds">Rotation interval (seconds)</label>
+              <input id="rotation-seconds" type="number" min="10" max="86400" value="3600" />
+              <div class="btn-row" style="margin-top: 8px;">
+                <button id="cmd-rotation" type="button" class="btn-sm">Set Rotation Interval</button>
+              </div>
+            </div>
+
+            <div style="margin-top: 12px;">
+              <div class="muted" style="margin-bottom: 8px;"><b>Destructive</b></div>
+              <button id="cmd-clean-all" type="button" class="btn-sm" style="background:#fdecea; border:1px solid #ef4444;">Clean All Content</button>
+              <div class="muted" style="margin-top: 6px;">Deletes everything on SD and in the blob container (contents only; does not delete the container). Config stays.</div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="btn-row" style="justify-content: space-between;">
+              <div class="muted"><b>Queued commands</b></div>
+              <button id="refresh-commands" type="button" class="btn-sm">Refresh</button>
+            </div>
+            <div id="commands-error" class="error" style="display:none; margin-top:10px;"></div>
+            <table>
+              <colgroup>
+                <col style="width: 170px;" />
+                <col style="width: 140px;" />
+                <col />
+                <col style="width: 110px;" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Created</th>
+                  <th>Op</th>
+                  <th>Blob</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="commands-body">
+                <tr><td colspan="4" class="muted">Idle</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <dialog id="json-dialog">
+          <div class="dialog-head">
+            <div>
+              <div style="font-weight: 700;">Command JSON</div>
+              <div id="json-dialog-sub" class="muted" style="margin-top: 2px;"></div>
+            </div>
+            <div class="btn-row">
+              <button id="json-copy" type="button" class="btn-sm">Copy</button>
+              <button id="json-close" type="button" class="btn-sm">Close</button>
+            </div>
+          </div>
+          <div class="dialog-body">
+            <pre id="json-pre">Loading...</pre>
+          </div>
+        </dialog>
       {% endif %}
     </div>
     <script>
@@ -120,6 +203,22 @@
       const refreshBtn = document.getElementById('refresh');
       const twinBody = document.getElementById('twin-body');
       const twinError = document.getElementById('twin-error');
+      const refreshCommandsBtn = document.getElementById('refresh-commands');
+      const commandsBody = document.getElementById('commands-body');
+      const commandsError = document.getElementById('commands-error');
+      const cmdResync = document.getElementById('cmd-resync');
+      const cmdReboot = document.getElementById('cmd-reboot');
+      const cmdConfigPortal = document.getElementById('cmd-config-portal');
+      const cmdRotation = document.getElementById('cmd-rotation');
+      const rotationSeconds = document.getElementById('rotation-seconds');
+      const cmdCleanAll = document.getElementById('cmd-clean-all');
+      const jsonDialog = document.getElementById('json-dialog');
+      const jsonPre = document.getElementById('json-pre');
+      const jsonClose = document.getElementById('json-close');
+      const jsonCopy = document.getElementById('json-copy');
+      const jsonDialogSub = document.getElementById('json-dialog-sub');
+
+      let lastJsonText = '';
 
       function resetMessages() {
         errorBox.style.display = 'none';
@@ -152,6 +251,152 @@
           twinError.textContent = '';
           twinError.style.display = 'none';
         }
+      }
+
+      function setCommandsError(msg) {
+        if (!commandsError) return;
+        if (msg) {
+          commandsError.textContent = msg;
+          commandsError.style.display = 'block';
+        } else {
+          commandsError.textContent = '';
+          commandsError.style.display = 'none';
+        }
+      }
+
+      async function enqueueCommand(op, args) {
+        resetMessages();
+        setCommandsError(null);
+        const deviceId = deviceSelect ? deviceSelect.value : '';
+        if (!deviceId) throw new Error('No device selected');
+
+        const res = await fetch('/api/commands/enqueue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_id: deviceId, op, args: args || {} }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.status !== 'ok') {
+          throw new Error(data.error || `Enqueue failed (status ${res.status})`);
+        }
+        messageBox.textContent = `Queued: ${data.blob || op}`;
+        messageBox.style.display = 'block';
+        await refreshCommands();
+      }
+
+      async function refreshCommands() {
+        if (!deviceSelect || !commandsBody) return;
+        setCommandsError(null);
+        commandsBody.innerHTML = '<tr><td colspan="4" class="muted">Loading...</td></tr>';
+
+        const deviceId = deviceSelect.value;
+        try {
+          const res = await fetch(`/api/commands?device_id=${encodeURIComponent(deviceId)}`);
+          const data = await res.json();
+          if (!res.ok || data.status !== 'ok') {
+            throw new Error(data.error || `List failed (status ${res.status})`);
+          }
+
+          const cmds = Array.isArray(data.commands) ? data.commands : [];
+          if (cmds.length === 0) {
+            commandsBody.innerHTML = '<tr><td colspan="4" class="muted">No queued commands</td></tr>';
+            return;
+          }
+
+          commandsBody.innerHTML = cmds.map(c => {
+            const created = c.created_at_utc ? esc(c.created_at_utc) : '—';
+            const op = c.op ? esc(c.op) : '—';
+            const blob = c.blob ? esc(c.blob) : '—';
+            const viewBtn = c.blob ? `<button type="button" class="btn-sm cmd-view" data-blob="${esc(c.blob)}">View</button>` : '';
+            const delBtn = c.blob ? `<button type="button" class="btn-sm cmd-cancel" data-blob="${esc(c.blob)}">Delete</button>` : '';
+            return `
+              <tr>
+                <td><span class="row-meta">${created}</span></td>
+                <td><span class="row-name">${op}</span></td>
+                <td><span class="row-name">${blob}</span></td>
+                <td><div class="btn-row">${viewBtn}${delBtn}</div></td>
+              </tr>
+            `;
+          }).join('');
+
+          for (const btn of commandsBody.querySelectorAll('.cmd-view')) {
+            btn.addEventListener('click', async () => {
+              const blob = btn.getAttribute('data-blob');
+              if (!blob) return;
+
+              const deviceId = deviceSelect.value;
+              setCommandsError(null);
+              lastJsonText = '';
+
+              if (jsonDialogSub) jsonDialogSub.textContent = blob;
+              if (jsonPre) jsonPre.textContent = 'Loading...';
+              if (jsonDialog && typeof jsonDialog.showModal === 'function') {
+                jsonDialog.showModal();
+              }
+
+              try {
+                const url = `/api/commands/read?device_id=${encodeURIComponent(deviceId)}&blob=${encodeURIComponent(blob)}`;
+                const res = await fetch(url);
+                const text = await res.text();
+                if (!res.ok) {
+                  throw new Error(text || `Read failed (status ${res.status})`);
+                }
+                let pretty = text;
+                try {
+                  const obj = JSON.parse(text);
+                  pretty = JSON.stringify(obj, null, 2);
+                } catch {
+                  // keep raw
+                }
+                lastJsonText = pretty;
+                if (jsonPre) jsonPre.textContent = pretty;
+              } catch (e) {
+                const msg = String(e);
+                lastJsonText = msg;
+                if (jsonPre) jsonPre.textContent = msg;
+              }
+            });
+          }
+
+          for (const btn of commandsBody.querySelectorAll('.cmd-cancel')) {
+            btn.addEventListener('click', async () => {
+              const blob = btn.getAttribute('data-blob');
+              if (!blob) return;
+              if (!confirm(`Delete queued command?\n\n${blob}`)) return;
+              try {
+                const deviceId = deviceSelect.value;
+                const res = await fetch('/api/commands/delete', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ device_id: deviceId, blob }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || data.status !== 'ok') {
+                  throw new Error(data.error || `Delete failed (status ${res.status})`);
+                }
+                await refreshCommands();
+              } catch (e) {
+                setCommandsError(String(e));
+              }
+            });
+          }
+        } catch (e) {
+          setCommandsError(String(e));
+          commandsBody.innerHTML = '<tr><td colspan="4" class="muted">Failed</td></tr>';
+        }
+      }
+
+      if (jsonClose && jsonDialog) {
+        jsonClose.addEventListener('click', () => jsonDialog.close());
+      }
+      if (jsonCopy) {
+        jsonCopy.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(lastJsonText || '');
+          } catch {
+            // ignore
+          }
+        });
       }
 
       function formatDuration(ms) {
@@ -194,7 +439,7 @@
       async function refreshTwin() {
         if (!deviceSelect || !twinBody) return;
         setTwinError(null);
-        twinBody.innerHTML = '<tr><td colspan="5" class="muted">Loading...</td></tr>';
+        twinBody.innerHTML = '<tr><td colspan="6" class="muted">Loading...</td></tr>';
 
         const deviceId = deviceSelect.value;
         try {
@@ -233,7 +478,7 @@
           })();
 
           if (rows.length === 0) {
-            twinBody.innerHTML = '<tr><td colspan="5" class="muted">No items</td></tr>';
+            twinBody.innerHTML = '<tr><td colspan="6" class="muted">No items</td></tr>';
             return;
           }
 
@@ -266,6 +511,13 @@
             const captionHtml = `<span class="row-name" data-meta-name="${esc(r.name)}">${esc(r.name)}</span>`;
             const uploaderHtml = `<span class="row-meta" data-meta-uploader="${esc(r.name)}">—</span>`;
 
+            const actionsHtml = `
+              <div class="btn-row">
+                <button type="button" class="btn-sm cmd-delete" data-name="${esc(r.name)}">Delete</button>
+                <button type="button" class="btn-sm cmd-show-next" data-name="${esc(r.name)}">Show Next</button>
+              </div>
+            `;
+
             return `
               <tr>
                 <td><div class="thumb-wrap"><img class="thumb" src="${thumbUrl}" loading="lazy" decoding="async" alt="thumb" onerror="this.style.display='none'" /></div></td>
@@ -273,9 +525,47 @@
                 <td><div>${uploaderHtml}</div></td>
                 <td>${stateHtml}</td>
                 <td>${expiresIn}</td>
+                <td>${actionsHtml}</td>
               </tr>
             `;
           }).join('');
+
+          // Wire per-row action buttons.
+          for (const btn of twinBody.querySelectorAll('.cmd-delete')) {
+            btn.addEventListener('click', async () => {
+              const name = btn.getAttribute('data-name');
+              if (!name) return;
+              if (!confirm(`Queue delete for ${name}?`)) return;
+              try {
+                await enqueueCommand('delete_photo', { path: name });
+              } catch (e) {
+                errorBox.textContent = String(e);
+                errorBox.style.display = 'block';
+              }
+            });
+          }
+          for (const btn of twinBody.querySelectorAll('.cmd-show-next')) {
+            btn.addEventListener('click', async () => {
+              const name = btn.getAttribute('data-name');
+              if (!name) return;
+              const raw = prompt('Duration seconds (optional, blank = configured interval):', '');
+              const args = { path: name };
+              if (raw && raw.trim()) {
+                const n = Number(raw.trim());
+                if (!Number.isFinite(n) || n % 1 !== 0) {
+                  alert('Duration must be an integer.');
+                  return;
+                }
+                args.duration_seconds = n;
+              }
+              try {
+                await enqueueCommand('show_next', args);
+              } catch (e) {
+                errorBox.textContent = String(e);
+                errorBox.style.display = 'block';
+              }
+            });
+          }
 
           // Populate captions from meta JSON (best-effort).
           const captionSpans = twinBody.querySelectorAll('[data-meta-name]');
@@ -318,7 +608,7 @@
           }
         } catch (e) {
           setTwinError(String(e));
-          twinBody.innerHTML = '<tr><td colspan="5" class="muted">Failed</td></tr>';
+          twinBody.innerHTML = '<tr><td colspan="6" class="muted">Failed</td></tr>';
         }
       }
 
@@ -393,10 +683,54 @@
         if (refreshBtn) {
           refreshBtn.addEventListener('click', refreshTwin);
         }
-        if (deviceSelect) {
-          deviceSelect.addEventListener('change', refreshTwin);
+        if (refreshCommandsBtn) {
+          refreshCommandsBtn.addEventListener('click', refreshCommands);
         }
+        if (deviceSelect) {
+          deviceSelect.addEventListener('change', () => {
+            refreshTwin();
+            refreshCommands();
+          });
+        }
+
+        if (cmdResync) {
+          cmdResync.addEventListener('click', async () => {
+            try { await enqueueCommand('resync_from_cloud', {}); } catch (e) { setCommandsError(String(e)); }
+          });
+        }
+        if (cmdReboot) {
+          cmdReboot.addEventListener('click', async () => {
+            if (!confirm('Queue reboot?')) return;
+            try { await enqueueCommand('reboot_device', {}); } catch (e) { setCommandsError(String(e)); }
+          });
+        }
+        if (cmdConfigPortal) {
+          cmdConfigPortal.addEventListener('click', async () => {
+            if (!confirm('Queue: enable config portal?')) return;
+            try { await enqueueCommand('enable_config_portal', {}); } catch (e) { setCommandsError(String(e)); }
+          });
+        }
+        if (cmdRotation) {
+          cmdRotation.addEventListener('click', async () => {
+            const val = rotationSeconds ? rotationSeconds.value : '';
+            const n = Number(val);
+            if (!Number.isFinite(n) || n % 1 !== 0) {
+              setCommandsError('Rotation interval must be an integer.');
+              return;
+            }
+            try { await enqueueCommand('set_rotation_interval', { seconds: n }); } catch (e) { setCommandsError(String(e)); }
+          });
+        }
+        if (cmdCleanAll) {
+          cmdCleanAll.addEventListener('click', async () => {
+            const typed = prompt('Type CLEAN ALL to confirm:');
+            if (typed !== 'CLEAN ALL') return;
+            try { await enqueueCommand('clean_all_content', {}); } catch (e) { setCommandsError(String(e)); }
+          });
+        }
+
         refreshTwin();
+        refreshCommands();
       }
     </script>
   </body>

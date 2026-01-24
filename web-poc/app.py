@@ -255,6 +255,26 @@ def upload_blob(url: str, payload: bytes, content_type: str = "application/octet
         return e.code, e.read()
 
 
+def delete_blob(url: str) -> Tuple[int, bytes]:
+    req = urllib_request.Request(url, method="DELETE")
+    # Azure Blob Storage typically expects an x-ms-version header.
+    req.add_header("x-ms-version", "2020-10-02")
+    try:
+        with urllib_request.urlopen(req, timeout=30) as resp:
+            return resp.status, resp.read()
+    except error.HTTPError as e:
+        return e.code, e.read()
+
+
+def download_blob(url: str) -> Tuple[int, bytes]:
+    req = urllib_request.Request(url, method="GET")
+    try:
+        with urllib_request.urlopen(req, timeout=30) as resp:
+            return resp.status, resp.read()
+    except error.HTTPError as e:
+        return e.code, e.read()
+
+
 def get_device_sas_url(config: Dict, device_id: str) -> Optional[str]:
     devices = config.get("devices", {})
     device = devices.get(device_id)
@@ -461,6 +481,95 @@ def list_blobs_prefix(container_sas_url: str, prefix: str, *, max_results: int =
         if not marker:
             break
     return out
+
+
+def make_command_id() -> str:
+    ts = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
+    # Tie-breaker to avoid collisions; keep it short but sufficiently random.
+    suffix = uuid.uuid4().hex[:4]
+    return f"{ts}__{suffix}"
+
+
+def make_command_blob_name(command_id: str, op: str) -> str:
+    safe_op = re.sub(r"[^a-z0-9_]+", "_", (op or "").lower()).strip("_")
+    safe_op = safe_op or "op"
+    return f"commands/{command_id}__{safe_op}.json"
+
+
+def parse_created_at_utc_from_command_id(command_id: str) -> Optional[str]:
+    # command_id format: YYYY-MM-DDTHH-MM-SSZ__abcd
+    base = (command_id or "").split("__", 1)[0]
+    try:
+        dt = datetime.strptime(base, "%Y-%m-%dT%H-%M-%SZ").replace(microsecond=0)
+        return dt.isoformat() + "Z"
+    except Exception:
+        return None
+
+
+def _validate_seconds_range(value: Optional[int]) -> Optional[str]:
+    if value is None:
+        return None
+    if value < 10 or value > 86400:
+        return "seconds must be between 10 and 86400"
+    return None
+
+
+def _validate_command_op_and_args(op: str, args: Dict) -> Optional[str]:
+    op = (op or "").strip()
+    args = args or {}
+
+    if op == "delete_photo":
+        if not _is_valid_g4_name(args.get("path", "")):
+            return "Invalid args.path"
+        return None
+
+    if op == "show_next":
+        if not _is_valid_g4_name(args.get("path", "")):
+            return "Invalid args.path"
+        dur = args.get("duration_seconds")
+        if dur is not None:
+            try:
+                dur_int = int(dur)
+            except Exception:
+                return "duration_seconds must be an integer"
+            msg = _validate_seconds_range(dur_int)
+            if msg:
+                return msg
+            args["duration_seconds"] = dur_int
+        return None
+
+    if op == "resync_from_cloud":
+        return None
+
+    if op == "set_rotation_interval":
+        try:
+            seconds = int(args.get("seconds"))
+        except Exception:
+            return "seconds must be an integer"
+        msg = _validate_seconds_range(seconds)
+        if msg:
+            return msg
+        args["seconds"] = seconds
+        return None
+
+    if op in ("reboot_device", "enable_config_portal", "clean_all_content"):
+        return None
+
+    return "Unsupported op"
+
+
+def _is_valid_command_blob_name(name: str) -> bool:
+    if not name or len(name) > 200:
+        return False
+    if "\\" in name or ".." in name:
+        return False
+    if not name.startswith("commands/"):
+        return False
+    if name.count("/") != 1:
+        return False
+    if not name.lower().endswith(".json"):
+        return False
+    return True
 
 
 def _derive_g4_name_from_archive_thumb(thumb_blob_name: str) -> Optional[str]:
@@ -672,3 +781,165 @@ def get_meta(request: Request, device_id: str, name: str):
     except Exception as exc:
         print(f"/meta upstream error device_id={device_id} name={name} blob={meta_json_name} err={exc}")
         return Response(content=b"{}", status_code=502, media_type="application/json")
+
+
+@app.get("/api/commands")
+def api_list_commands(request: Request, device_id: str):
+    config = load_config()
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"status": "error", "error": "Not authenticated"})
+    allowed = get_allowed_devices(config, user)
+    if device_id not in allowed:
+        return JSONResponse(status_code=403, content={"status": "error", "error": "Device not allowed"})
+
+    container_sas_url = get_device_sas_url(config, device_id)
+    if not container_sas_url:
+        return JSONResponse(status_code=404, content={"status": "error", "error": "Device not found"})
+
+    try:
+        blobs = [n for n in list_blobs_prefix(container_sas_url, "commands/") if n.lower().endswith(".json")]
+    except Exception as exc:
+        return JSONResponse(status_code=502, content={"status": "error", "error": f"List failed: {exc}"})
+
+    items = []
+    for blob in blobs:
+        # commands/<id>__<op>.json
+        base = blob[len("commands/") :] if blob.startswith("commands/") else blob
+        stem = base[:-5] if base.lower().endswith(".json") else base
+        parts = stem.split("__", 2)
+        cmd_id = parts[0]
+        parsed_op = None
+        if len(parts) >= 2:
+            cmd_id = f"{parts[0]}__{parts[1]}"
+        if len(parts) == 3:
+            parsed_op = parts[2]
+        created_at_utc = parse_created_at_utc_from_command_id(cmd_id)
+        items.append({"blob": blob, "id": cmd_id, "op": parsed_op, "created_at_utc": created_at_utc})
+
+    # Sort by blob name to preserve id lexicographic ordering.
+    items.sort(key=lambda it: it.get("blob") or "")
+
+    return JSONResponse(status_code=200, content={"status": "ok", "commands": items})
+
+
+@app.post("/api/commands/enqueue")
+async def api_enqueue_command(request: Request):
+    config = load_config()
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"status": "error", "error": "Not authenticated"})
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    device_id = (payload.get("device_id") or "").strip()
+    op = (payload.get("op") or "").strip()
+    args = payload.get("args") or {}
+    if not isinstance(args, dict):
+        return JSONResponse(status_code=400, content={"status": "error", "error": "args must be an object"})
+
+    allowed = get_allowed_devices(config, user)
+    if device_id not in allowed:
+        return JSONResponse(status_code=403, content={"status": "error", "error": "Device not allowed"})
+
+    container_sas_url = get_device_sas_url(config, device_id)
+    if not container_sas_url:
+        return JSONResponse(status_code=404, content={"status": "error", "error": "Device not found"})
+
+    err = _validate_command_op_and_args(op, args)
+    if err:
+        return JSONResponse(status_code=400, content={"status": "error", "error": err})
+
+    command_id = make_command_id()
+    created_at_utc = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+    cmd = {
+        "v": 1,
+        "id": command_id,
+        "created_at_utc": created_at_utc,
+        "op": op,
+        "args": args,
+        "ui": {"queued_by": user},
+    }
+    cmd_bytes = json.dumps(cmd, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+    blob_name = make_command_blob_name(command_id, op)
+    url = build_blob_url(container_sas_url, blob_name)
+    status, body = upload_blob(url, cmd_bytes, content_type="application/json")
+    if status not in (200, 201):
+        detail = body.decode(errors="ignore")
+        return JSONResponse(status_code=502, content={"status": "error", "error": f"Enqueue failed (status {status}): {detail}"})
+
+    return JSONResponse(status_code=200, content={"status": "ok", "blob": blob_name, "id": command_id})
+
+
+@app.post("/api/commands/delete")
+async def api_delete_command(request: Request):
+    config = load_config()
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"status": "error", "error": "Not authenticated"})
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    device_id = (payload.get("device_id") or "").strip()
+    blob = (payload.get("blob") or "").strip()
+
+    allowed = get_allowed_devices(config, user)
+    if device_id not in allowed:
+        return JSONResponse(status_code=403, content={"status": "error", "error": "Device not allowed"})
+
+    container_sas_url = get_device_sas_url(config, device_id)
+    if not container_sas_url:
+        return JSONResponse(status_code=404, content={"status": "error", "error": "Device not found"})
+
+    if not _is_valid_command_blob_name(blob):
+        return JSONResponse(status_code=400, content={"status": "error", "error": "Invalid blob"})
+
+    url = build_blob_url(container_sas_url, blob)
+    status, body = delete_blob(url)
+    if status in (200, 202):
+        return JSONResponse(status_code=200, content={"status": "ok"})
+    if status == 404:
+        # Idempotent: deleting a missing blob is fine.
+        return JSONResponse(status_code=200, content={"status": "ok"})
+
+    detail = body.decode(errors="ignore")
+    return JSONResponse(status_code=502, content={"status": "error", "error": f"Delete failed (status {status}): {detail}"})
+
+
+@app.get("/api/commands/read")
+def api_read_command(request: Request, device_id: str, blob: str):
+    config = load_config()
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"status": "error", "error": "Not authenticated"})
+
+    allowed = get_allowed_devices(config, user)
+    if device_id not in allowed:
+        return JSONResponse(status_code=403, content={"status": "error", "error": "Device not allowed"})
+
+    container_sas_url = get_device_sas_url(config, device_id)
+    if not container_sas_url:
+        return JSONResponse(status_code=404, content={"status": "error", "error": "Device not found"})
+
+    blob = (blob or "").strip()
+    if not _is_valid_command_blob_name(blob):
+        return JSONResponse(status_code=400, content={"status": "error", "error": "Invalid blob"})
+
+    url = build_blob_url(container_sas_url, blob)
+    status, body = download_blob(url)
+    if status == 200:
+        # Proxy raw JSON bytes; browser will pretty-print client-side.
+        return Response(content=body, media_type="application/json", headers={"Cache-Control": "no-store"})
+    if status == 404:
+        return JSONResponse(status_code=404, content={"status": "error", "error": "Not found"})
+
+    detail = body[:512].decode(errors="ignore")
+    return JSONResponse(status_code=502, content={"status": "error", "error": f"Read failed (status {status}): {detail}"})
