@@ -178,6 +178,9 @@ struct WifiConnectOpts {
     bool show_status = false;
     bool allow_scan = false;
     bool allow_reset_escalation = false;
+    // If true, do a one-time scan before retrying after a reset escalation.
+    // Intended for SleepCycle where we normally avoid scanning for speed/power.
+    bool scan_on_reset_escalation = false;
     uint32_t budget_ms = 6000;
     // If true, allow a single WiFi reset when we appear stuck in WL_IDLE_STATUS.
     bool allow_idle_stall_reset = false;
@@ -297,6 +300,27 @@ static bool wifi_connect_internal(const DeviceConfig &config, const WifiConnectO
                 did_reset = true;
                 begin_ms = millis();
 
+                if (opts.scan_on_reset_escalation) {
+                    uint8_t scan_bssid[6];
+                    uint8_t scan_channel = 0;
+                    int8_t scan_rssi = -127;
+                    if (select_strongest_ap_scan(config.wifi_ssid, scan_bssid, &scan_channel, &scan_rssi)) {
+                        memcpy(bssid, scan_bssid, 6);
+                        channel = scan_channel;
+                        rssi = scan_rssi;
+                        have_hint = true;
+                        rtc_wifi_state_set_best_ap(config.wifi_ssid, bssid, channel, rssi);
+
+                        char scan_bssid_str[18];
+                        format_bssid(bssid, scan_bssid_str, sizeof(scan_bssid_str));
+                        LOGI("WiFi", "%s: scan selected bssid=%s ch=%u rssi=%d",
+                            opts.reason ? opts.reason : "WiFi",
+                            scan_bssid_str,
+                            (unsigned)channel,
+                            (int)rssi);
+                    }
+                }
+
                 if (have_hint) {
                     WiFi.begin(config.wifi_ssid, config.wifi_password, channel, bssid);
                 } else {
@@ -325,6 +349,7 @@ bool wifi_connect_fast_sleepcycle(const DeviceConfig &config, const char *reason
     opts.show_status = show_status;
     opts.allow_scan = false;
     opts.allow_reset_escalation = true;
+    opts.scan_on_reset_escalation = true;
     opts.allow_idle_stall_reset = true;
     opts.idle_stall_reset_after_ms = (budget_ms >= 4500) ? 3500 : (budget_ms / 2);
     opts.budget_ms = budget_ms;
