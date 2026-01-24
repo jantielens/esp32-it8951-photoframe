@@ -85,7 +85,10 @@
                         <h3 style="margin: 0; font-size: 16px; color: #1d1d1f;">Stored Images</h3>
                         <small>Click Display to show immediately.</small>
                     </div>
-                    <button type="button" id="sd-images-refresh" class="btn">Refresh</button>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button type="button" id="sd-images-sync" class="btn btn-warning">Re-sync from cloud</button>
+                        <button type="button" id="sd-images-refresh" class="btn">Refresh</button>
+                    </div>
                 </div>
 
                 <div id="sd-images-empty" style="display:none; margin-top: 12px; color: #666;">No .g4 images found.</div>

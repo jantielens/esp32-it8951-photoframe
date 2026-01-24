@@ -947,12 +947,12 @@ Dismiss the currently displayed image and return to previous screen.
 
 ### SD Image Management (G4)
 
-Manage `.g4` images stored in `/perm` and `/temp`. Files must be `.g4` and smaller than 2 MB.
+Manage `.g4` images stored in `/queue-permanent` and `/queue-temporary`. Files must be `.g4` and smaller than 2 MB.
 
 #### `GET /api/sd/images`
 
 Queue a job to list `.g4` images on the SD card (sorted by filename). Returned names include
-the `perm/` or `temp/` prefix.
+the `queue-permanent/` or `queue-temporary/` prefix.
 
 **Response (Queued):**
 ```json
@@ -966,7 +966,7 @@ the `perm/` or `temp/` prefix.
 #### `POST /api/sd/images`
 
 Upload a `.g4` file to SD (overwrites on conflict). Upload queues a job after
-the HTTP payload is received. Uploads are stored under `perm/` (prefix is added
+the HTTP payload is received. Uploads are stored under `queue-permanent/` (prefix is added
 if omitted).
 
 **Request:**
@@ -984,7 +984,7 @@ if omitted).
 
 #### `DELETE /api/sd/images?name=<filename>`
 
-Delete a `.g4` file from SD. The `name` must include the `perm/` or `temp/` prefix.
+Delete a `.g4` file from SD. The `name` must include the `queue-permanent/` or `queue-temporary/` prefix.
 
 **Response (Queued):**
 ```json
@@ -997,7 +997,7 @@ Delete a `.g4` file from SD. The `name` must include the `perm/` or `temp/` pref
 
 #### `POST /api/sd/images/display?name=<filename>`
 
-Queue an immediate display of a `.g4` image. The `name` must include the `perm/` or `temp/` prefix.
+Queue an immediate display of a `.g4` image. The `name` must include the `queue-permanent/` or `queue-temporary/` prefix.
 
 **Response (Queued):**
 ```json
@@ -1005,6 +1005,26 @@ Queue an immediate display of a `.g4` image. The `name` must include the `perm/`
   "success": true,
   "queued": true,
   "job_id": 45
+}
+```
+
+#### `POST /api/sd/sync`
+
+Manual recovery operation: deletes all SD `queue-permanent/` and `queue-temporary/` `.g4` files and re-downloads
+truth-store images from Azure Blob Storage (`all/temporary` and `all/permanent`), excluding queued items and
+expired temporaries (requires valid time).
+
+**Notes:**
+- Only available in Full portal mode (not in AP/core mode).
+- Requires `blob_sas_url` to be configured (device-side).
+- Runs as an async job; poll via `GET /api/sd/jobs?id=<job_id>`.
+
+**Response (Queued):**
+```json
+{
+  "success": true,
+  "queued": true,
+  "job_id": 46
 }
 ```
 
@@ -1031,9 +1051,36 @@ Check status of a queued SD job.
   "type": "list",
   "state": "done",
   "ok": true,
-  "files": ["perm/a.g4", "temp/b.g4", "perm/c.g4"]
+  "files": ["queue-permanent/a.g4", "queue-temporary/b.g4", "queue-permanent/c.g4"]
 }
 ```
+
+**Response (Done - Sync):**
+```json
+{
+  "success": true,
+  "id": 46,
+  "type": "sync",
+  "state": "done",
+  "ok": true,
+  "message": "Synced: ok=12 failed=0"
+}
+```
+
+If `ok` is false, `files` contains the failed blob names.
+
+### Archive Preview Proxy (Azure)
+
+Proxy thumbnails from the cloud truth store without exposing the Azure SAS URL to the browser.
+
+#### `GET /api/archive/preview?kind=thumb&name=<queue-permanent/...g4|queue-temporary/...g4>`
+
+Returns a JPEG thumbnail for the given `.g4` name by fetching:
+`all/<kind>/<name-without-.g4>__thumb.jpg`.
+
+**Notes:**
+- Only available in Full portal mode (not in AP/core mode).
+- Returns `404` if the thumbnail blob does not exist.
 
 **Response (Error):**
 ```json

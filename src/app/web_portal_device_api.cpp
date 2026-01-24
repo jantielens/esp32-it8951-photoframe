@@ -18,6 +18,7 @@
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include "display_manager.h"
+#include "time_utils.h"
 
 // GET /api/mode - Return portal mode (core vs full)
 void handleGetMode(AsyncWebServerRequest *request) {
@@ -73,6 +74,9 @@ void handleGetVersion(AsyncWebServerRequest *request) {
     response->print(PROJECT_NAME);
     response->print("\",\"project_display_name\":\"");
     response->print(PROJECT_DISPLAY_NAME);
+
+    response->print(",\"time_valid\":");
+    response->print(time_utils::is_time_valid() ? "true" : "false");
 
     // Build metadata for GitHub Pages-based updates
     response->print("\",\"board_name\":\"");

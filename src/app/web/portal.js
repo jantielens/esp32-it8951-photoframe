@@ -15,6 +15,7 @@ const API_VERSION = '/api/info'; // Used for connection polling
 const API_SD_IMAGES = '/api/sd/images';
 const API_SD_IMAGES_DISPLAY = '/api/sd/images/display';
 const API_SD_JOBS = '/api/sd/jobs';
+const API_SD_SYNC = '/api/sd/sync';
 
 let selectedFile = null;
 let portalMode = 'full'; // 'core' or 'full'
@@ -142,6 +143,29 @@ async function sdWaitJob(jobId, timeoutMs = 60000) {
         await wait(500);
     }
     throw new Error('Job timeout');
+}
+
+async function sdSyncFromCloud() {
+    if (!confirm('This will delete SD queue-permanent/ and queue-temporary/ images and re-download from Azure all/temporary and all/permanent (excluding queued + expired). Continue?')) {
+        return;
+    }
+
+    try {
+        showBusyOverlay('Re-syncing SD from cloud...');
+        const jobId = await sdStartJob(API_SD_SYNC, { method: 'POST' });
+        const data = await sdWaitJob(jobId, 10 * 60 * 1000);
+        if (!data.ok) {
+            const details = (data.files && data.files.length) ? ` Failed: ${data.files.slice(0, 3).join(', ')}${data.files.length > 3 ? '…' : ''}` : '';
+            throw new Error((data.message || 'Sync failed') + details);
+        }
+        showMessage('SD re-sync complete', 'success');
+        sdLoadImages();
+    } catch (e) {
+        console.error('SD sync error:', e);
+        showMessage(`SD re-sync failed: ${e.message}`, 'error');
+    } finally {
+        hideBusyOverlay();
+    }
 }
 
 /**
@@ -539,6 +563,18 @@ async function loadVersion() {
             `${formatBytes(version.flash_chip_size)} Flash`;
         document.getElementById('psram-status').textContent = 
             version.psram_size > 0 ? `${formatBytes(version.psram_size)} PSRAM` : 'No PSRAM';
+
+        // Disable re-sync when time isn't valid (required to filter expired temporaries).
+        const sdSyncBtn = document.getElementById('sd-images-sync');
+        if (sdSyncBtn) {
+            if (version.time_valid === false) {
+                sdSyncBtn.disabled = true;
+                sdSyncBtn.title = 'Re-sync requires valid time (NTP not synced).';
+            } else {
+                sdSyncBtn.disabled = false;
+                sdSyncBtn.title = '';
+            }
+        }
 
         // Update Firmware page online update UI if present
         updateOnlineUpdateSection(version);
@@ -1016,18 +1052,87 @@ function sdRenderList(files) {
     table.style.borderCollapse = 'collapse';
     table.innerHTML = '<thead><tr>' +
         '<th style="text-align:left; padding:8px 4px; font-size:13px; color:#666;">File</th>' +
+        '<th style="text-align:left; padding:8px 4px; font-size:13px; color:#666; width:90px;">Preview</th>' +
         '<th style="text-align:right; padding:8px 4px; font-size:13px; color:#666;">Actions</th>' +
         '</tr></thead>';
 
     const tbody = document.createElement('tbody');
     files.forEach(name => {
         const tr = document.createElement('tr');
-        tr.innerHTML =
-            `<td style="padding:8px 4px; border-top: 1px solid #eee; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">${name}</td>` +
-            `<td style="padding:8px 4px; border-top: 1px solid #eee; text-align:right;">` +
-            `<button type="button" class="btn" data-action="display" data-name="${name}" style="margin-right:6px;">Display</button>` +
-            `<button type="button" class="btn btn-danger" data-action="delete" data-name="${name}">Delete</button>` +
-            `</td>`;
+
+        const tdName = document.createElement('td');
+        tdName.style.padding = '8px 4px';
+        tdName.style.borderTop = '1px solid #eee';
+        tdName.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, monospace';
+        tdName.textContent = name;
+
+        const tdPreview = document.createElement('td');
+        tdPreview.style.padding = '8px 4px';
+        tdPreview.style.borderTop = '1px solid #eee';
+
+        const wrap = document.createElement('div');
+        wrap.className = 'sd-thumb-wrap';
+
+        const thumbBox = document.createElement('div');
+        thumbBox.className = 'sd-thumb-box';
+
+        const placeholder = document.createElement('div');
+        placeholder.className = 'sd-thumb-placeholder';
+
+        const fallback = document.createElement('span');
+        fallback.className = 'sd-thumb-fallback';
+        fallback.textContent = 'No preview';
+
+        const img = document.createElement('img');
+        img.className = 'sd-thumb';
+        img.alt = '';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.style.opacity = '0';
+        img.src = `/api/archive/preview?kind=thumb&name=${encodeURIComponent(name)}`;
+        img.onload = () => {
+            placeholder.style.display = 'none';
+            img.style.opacity = '1';
+        };
+        img.onerror = () => {
+            placeholder.style.display = 'none';
+            thumbBox.style.display = 'none';
+            fallback.style.display = 'inline';
+        };
+
+        thumbBox.appendChild(placeholder);
+        thumbBox.appendChild(img);
+
+        wrap.appendChild(thumbBox);
+        wrap.appendChild(fallback);
+        tdPreview.appendChild(wrap);
+
+        const tdActions = document.createElement('td');
+        tdActions.style.padding = '8px 4px';
+        tdActions.style.borderTop = '1px solid #eee';
+        tdActions.style.textAlign = 'right';
+
+        const btnDisplay = document.createElement('button');
+        btnDisplay.type = 'button';
+        btnDisplay.className = 'btn';
+        btnDisplay.dataset.action = 'display';
+        btnDisplay.dataset.name = name;
+        btnDisplay.style.marginRight = '6px';
+        btnDisplay.textContent = 'Display';
+
+        const btnDelete = document.createElement('button');
+        btnDelete.type = 'button';
+        btnDelete.className = 'btn btn-danger';
+        btnDelete.dataset.action = 'delete';
+        btnDelete.dataset.name = name;
+        btnDelete.textContent = 'Delete';
+
+        tdActions.appendChild(btnDisplay);
+        tdActions.appendChild(btnDelete);
+
+        tr.appendChild(tdName);
+        tr.appendChild(tdPreview);
+        tr.appendChild(tdActions);
         tbody.appendChild(tr);
     });
 
@@ -1411,6 +1516,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const sdRefreshBtn = document.getElementById('sd-images-refresh');
     if (sdRefreshBtn) {
         sdRefreshBtn.addEventListener('click', sdLoadImages);
+    }
+
+    const sdSyncBtn = document.getElementById('sd-images-sync');
+    if (sdSyncBtn) {
+        sdSyncBtn.addEventListener('click', sdSyncFromCloud);
     }
 
     // Firmware page: GitHub Pages link is populated in updateOnlineUpdateSection()

@@ -6,12 +6,14 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from urllib import error, parse, request
+from urllib import error, parse, request as urllib_request
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+
+import xml.etree.ElementTree as ET
 
 DEFAULT_WIDTH = 1872
 DEFAULT_HEIGHT = 1404
@@ -148,7 +150,12 @@ def pack_g4(img: Image.Image) -> bytes:
     return bytes(out)
 
 
-def convert_jpg_to_g4_image(img: Image.Image, width: int, height: int, variant: str) -> bytes:
+def convert_jpg_to_processed_image(img: Image.Image, width: int, height: int, variant: str) -> Image.Image:
+    """Return the final processed grayscale image (orientation + dither applied) used for G4 packing.
+
+    This is used to generate archive previews that match the device output.
+    """
+
     img = fit_with_white_bg(img, width, height)
     base = img.convert("L")
 
@@ -165,20 +172,66 @@ def convert_jpg_to_g4_image(img: Image.Image, width: int, height: int, variant: 
 
     out = ImageOps.flip(out)
     out = ImageOps.mirror(out)
-    return pack_g4(out)
+    return out
+
+
+def _img_to_jpeg_bytes(img: Image.Image, *, quality: int = 85) -> bytes:
+    bio = BytesIO()
+    img.save(bio, format="JPEG", quality=quality, optimize=True)
+    return bio.getvalue()
+
+
+def _make_thumb_original(img: Image.Image, size: int = 100) -> Image.Image:
+    """Letterboxed thumb for the *original* upload.
+
+    Keeps the image unprocessed (no device-specific flip/mirror/dither). We do apply
+    EXIF transpose so the thumbnail matches how browsers typically display photos.
+    """
+
+    img = ImageOps.exif_transpose(img)
+    img = img.convert("RGB")
+    target = (size, size)
+    thumb = ImageOps.contain(img, target)
+    canvas = Image.new("RGB", target, color=(255, 255, 255))
+    x = (size - thumb.size[0]) // 2
+    y = (size - thumb.size[1]) // 2
+    canvas.paste(thumb, (x, y))
+    return canvas
+
+
+def derive_all_names(g4_path: str) -> Tuple[str, str, str, str]:
+    """Map a queue g4 name to its all/* artifact names (g4 + jpg + thumb + meta)."""
+
+    if not g4_path.lower().endswith(".g4"):
+        raise ValueError("g4_path must end with .g4")
+
+    if g4_path.startswith("queue-temporary/"):
+        rest = g4_path[len("queue-temporary/") :]
+        base = f"all/temporary/{rest[:-3]}"
+    elif g4_path.startswith("queue-permanent/"):
+        rest = g4_path[len("queue-permanent/") :]
+        base = f"all/permanent/{rest[:-3]}"
+    else:
+        raise ValueError("g4_path must start with queue-temporary/ or queue-permanent/")
+
+    all_g4 = f"{base}.g4"
+    full_jpg = f"{base}.jpg"
+    thumb_jpg = f"{base}__thumb.jpg"
+    meta_json = f"{base}.json"
+    return all_g4, full_jpg, thumb_jpg, meta_json
 
 
 def make_perm_g4_name() -> str:
     guid = str(uuid.uuid4())
     upload_ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    return f"perm/{upload_ts}__{guid}.g4"
+    return f"queue-permanent/{upload_ts}__{guid}.g4"
 
 
 def make_temp_g4_name(expires_at: datetime) -> str:
     guid = str(uuid.uuid4())
     upload_ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     expires_ts = expires_at.strftime("%Y%m%dT%H%M%SZ")
-    return f"temp/{expires_ts}__{upload_ts}__{guid}.g4"
+    return f"queue-temporary/{expires_ts}__{upload_ts}__{guid}.g4"
 
 
 def build_blob_url(container_sas_url: str, blob_name: str) -> str:
@@ -191,12 +244,12 @@ def build_blob_url(container_sas_url: str, blob_name: str) -> str:
 
 
 def upload_blob(url: str, payload: bytes, content_type: str = "application/octet-stream") -> Tuple[int, bytes]:
-    req = request.Request(url, method="PUT", data=payload)
+    req = urllib_request.Request(url, method="PUT", data=payload)
     req.add_header("x-ms-blob-type", "BlockBlob")
     req.add_header("Content-Type", content_type)
     req.add_header("Content-Length", str(len(payload)))
     try:
-        with request.urlopen(req, timeout=120) as resp:
+        with urllib_request.urlopen(req, timeout=120) as resp:
             return resp.status, resp.read()
     except error.HTTPError as e:
         return e.code, e.read()
@@ -247,8 +300,9 @@ def index(request: Request):
 async def upload(
     request: Request,
     device_id: str = Form(...),
-    queue: str = Form("perm"),
+    queue: str = Form("queue-permanent"),
     ttl_hours: Optional[int] = Form(None),
+    caption: Optional[str] = Form(None),
     file: UploadFile = File(...),
 ):
     config = load_config()
@@ -268,9 +322,10 @@ async def upload(
         return JSONResponse(status_code=400, content={"status": "error", "error": "Only JPG files are supported"})
 
     try:
-        data = await file.read()
-        img = Image.open(BytesIO(data))
-        payload = convert_jpg_to_g4_image(img, DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_VARIANT)
+        original_bytes = await file.read()
+        img = Image.open(BytesIO(original_bytes))
+        processed = convert_jpg_to_processed_image(img, DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_VARIANT)
+        payload = pack_g4(processed)
     except Exception as exc:
         return JSONResponse(status_code=400, content={"status": "error", "error": f"Conversion failed: {exc}"})
 
@@ -278,11 +333,12 @@ async def upload(
     if not container_sas_url:
         return JSONResponse(status_code=404, content={"status": "error", "error": "Device not found"})
 
-    queue = (queue or "perm").lower()
-    if queue not in ("perm", "temp"):
+    queue = (queue or "queue-permanent").lower()
+    if queue not in ("queue-permanent", "queue-temporary"):
         return JSONResponse(status_code=400, content={"status": "error", "error": "Invalid queue"})
 
-    if queue == "temp":
+    expires_at: Optional[datetime] = None
+    if queue == "queue-temporary":
         ttl = ttl_hours if ttl_hours is not None else 24
         if ttl <= 0 or ttl > 24 * 30:
             return JSONResponse(status_code=400, content={"status": "error", "error": "Invalid TTL"})
@@ -290,8 +346,31 @@ async def upload(
         blob_name = make_temp_g4_name(expires_at)
     else:
         blob_name = make_perm_g4_name()
-    blob_url = build_blob_url(container_sas_url, blob_name)
-    status, body = upload_blob(blob_url, payload, content_type="application/octet-stream")
+
+    # all/* outputs derived from the queue g4 path.
+    all_g4_name, full_jpg_name, thumb_jpg_name, meta_json_name = derive_all_names(blob_name)
+
+    # Store the *original uploaded file* in all/ (unprocessed).
+    # This is intentional: all/ is for human previews/auditing, not for matching device output.
+    full_jpg_bytes = original_bytes
+    thumb_jpg_bytes = _img_to_jpeg_bytes(_make_thumb_original(Image.open(BytesIO(original_bytes)), 100), quality=75)
+    uploaded_at_utc = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    expires_at_utc = expires_at.replace(microsecond=0).isoformat() + "Z" if expires_at else None
+    meta = {
+        "v": 1,
+        "g4_path": blob_name,
+        "original_filename": file.filename,
+        "caption": (caption or "").strip(),
+        "uploader": user,
+        "uploaded_at_utc": uploaded_at_utc,
+    }
+    if expires_at_utc:
+        meta["expires_at_utc"] = expires_at_utc
+    meta_bytes = json.dumps(meta, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+    # Upload g4 to all/ (truth) and to queue (delivery).
+    all_g4_url = build_blob_url(container_sas_url, all_g4_name)
+    status, body = upload_blob(all_g4_url, payload, content_type="application/octet-stream")
     if status not in (200, 201):
         detail = body.decode(errors="ignore")
         return JSONResponse(
@@ -299,7 +378,297 @@ async def upload(
             content={"status": "error", "error": f"Upload failed (status {status}): {detail}"},
         )
 
+    queue_url = build_blob_url(container_sas_url, blob_name)
+    status, body = upload_blob(queue_url, payload, content_type="application/octet-stream")
+    if status not in (200, 201):
+        detail = body.decode(errors="ignore")
+        return JSONResponse(
+            status_code=502,
+            content={"status": "error", "error": f"Queue upload failed (status {status}): {detail}"},
+        )
+
+    # Best-effort all/ uploads (thumb/full/meta). These are non-critical for device operation,
+    # but are required for previews.
+    for name, content, ctype in (
+        (full_jpg_name, full_jpg_bytes, "image/jpeg"),
+        (thumb_jpg_name, thumb_jpg_bytes, "image/jpeg"),
+        (meta_json_name, meta_bytes, "application/json"),
+    ):
+        url = build_blob_url(container_sas_url, name)
+        s, b = upload_blob(url, content, content_type=ctype)
+        if s not in (200, 201):
+            detail = b.decode(errors="ignore")
+            return JSONResponse(
+                status_code=502,
+                content={"status": "error", "error": f"All upload failed for {name} (status {s}): {detail}"},
+            )
+
     return JSONResponse(
         status_code=200,
-        content={"status": "ok", "message": f"Uploaded {blob_name} ({len(payload)} bytes)"},
+        content={
+            "status": "ok",
+            "message": f"Uploaded {blob_name} ({len(payload)} bytes)",
+            "g4_path": blob_name,
+        },
     )
+
+
+def _is_valid_g4_name(name: str) -> bool:
+    if not name or len(name) > 127:
+        return False
+    if "\\" in name or ".." in name:
+        return False
+    lower = name.lower()
+    if not lower.endswith(".g4"):
+        return False
+    if name.count("/") != 1:
+        return False
+    return name.startswith("queue-permanent/") or name.startswith("queue-temporary/")
+
+
+def _parse_azure_list(xml_bytes: bytes) -> Tuple[List[str], Optional[str]]:
+    # Azure container list response is XML; parse <Name> and <NextMarker>.
+    root = ET.fromstring(xml_bytes)
+    names: List[str] = []
+
+    # Namespace may be present; use wildcard.
+    for elem in root.findall(".//{*}Name"):
+        if elem.text:
+            names.append(elem.text)
+
+    next_marker_elem = root.find(".//{*}NextMarker")
+    next_marker = next_marker_elem.text if (next_marker_elem is not None and next_marker_elem.text) else None
+    return names, next_marker
+
+
+def list_blobs_prefix(container_sas_url: str, prefix: str, *, max_results: int = 200) -> List[str]:
+    base, _, token = container_sas_url.partition("?")
+    if not token:
+        raise ValueError("SAS URL must include a query string token")
+    container = base.rstrip("/")
+
+    marker: Optional[str] = None
+    out: List[str] = []
+    while True:
+        q = token + "&restype=container&comp=list" + f"&maxresults={max_results}" + "&prefix=" + parse.quote(prefix, safe="")
+        if marker:
+            q += "&marker=" + parse.quote(marker, safe="")
+        url = f"{container}?{q}"
+        with urllib_request.urlopen(url, timeout=10) as resp:
+            body = resp.read()
+        names, marker = _parse_azure_list(body)
+        out.extend(names)
+        if not marker:
+            break
+    return out
+
+
+def _derive_g4_name_from_archive_thumb(thumb_blob_name: str) -> Optional[str]:
+    """Map all/ thumb blob name to its logical queue g4 name.
+
+    Example: all/permanent/<id>__thumb.jpg -> queue-permanent/<id>.g4
+    """
+
+    lower = thumb_blob_name.lower()
+    if not lower.endswith("__thumb.jpg"):
+        return None
+    if not thumb_blob_name.startswith("all/"):
+        return None
+
+    # Strip leading "all/".
+    rest = thumb_blob_name[len("all/") :]
+    if rest.startswith("permanent/"):
+        base = rest[: -len("__thumb.jpg")]
+        return "queue-permanent/" + base[len("permanent/") :] + ".g4"
+    if rest.startswith("temporary/"):
+        base = rest[: -len("__thumb.jpg")]
+        return "queue-temporary/" + base[len("temporary/") :] + ".g4"
+    return None
+
+
+def _temp_expiry_status(g4_name: str, now: datetime) -> Tuple[Optional[str], Optional[bool]]:
+    if not g4_name.startswith("queue-temporary/"):
+        return None, None
+
+    expires = None
+    expired = None
+    m = re.match(r"^queue-temporary/(?P<expires>\d{8}T\d{6}Z)__", g4_name)
+    if m:
+        try:
+            expires_dt = datetime.strptime(m.group("expires"), "%Y%m%dT%H%M%SZ")
+            expires_dt = expires_dt.replace(microsecond=0)
+            expires = expires_dt.isoformat() + "Z"
+            expired = now >= expires_dt
+        except Exception:
+            expires = None
+            expired = None
+    return expires, expired
+
+
+@app.get("/api/list")
+def api_list(request: Request, device_id: str):
+    config = load_config()
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"status": "error", "error": "Not authenticated"})
+    allowed = get_allowed_devices(config, user)
+    if device_id not in allowed:
+        return JSONResponse(status_code=403, content={"status": "error", "error": "Device not allowed"})
+
+    container_sas_url = get_device_sas_url(config, device_id)
+    if not container_sas_url:
+        return JSONResponse(status_code=404, content={"status": "error", "error": "Device not found"})
+
+    try:
+        perm = [n for n in list_blobs_prefix(container_sas_url, "queue-permanent/") if n.lower().endswith(".g4")]
+        temp = [n for n in list_blobs_prefix(container_sas_url, "queue-temporary/") if n.lower().endswith(".g4")]
+
+        # all/ artifacts are stored under all/<kind>/<id>__thumb.jpg.
+        # We list thumbs only (fast, small) and derive the corresponding g4 name.
+        archive_perm = [
+            n
+            for n in list_blobs_prefix(container_sas_url, "all/permanent/")
+            if n.lower().endswith("__thumb.jpg")
+        ]
+        archive_temp = [
+            n
+            for n in list_blobs_prefix(container_sas_url, "all/temporary/")
+            if n.lower().endswith("__thumb.jpg")
+        ]
+    except Exception as exc:
+        return JSONResponse(status_code=502, content={"status": "error", "error": f"List failed: {exc}"})
+
+    # Status badge for temp: active vs expired.
+    now = datetime.utcnow()
+    temp_items = []
+    for n in temp:
+        expires_at_utc, expired = _temp_expiry_status(n, now)
+        temp_items.append({"name": n, "expires_at_utc": expires_at_utc, "expired": expired})
+
+    # Build merged "device twin" list.
+    queued = set(perm) | set(temp)
+    archived: set[str] = set()
+    for blob in archive_perm + archive_temp:
+        g4_name = _derive_g4_name_from_archive_thumb(blob)
+        if g4_name:
+            archived.add(g4_name)
+
+    all_items = queued | archived
+    merged = []
+    for name in all_items:
+        queue_kind = "temporary" if name.startswith("queue-temporary/") else "permanent"
+        expires_at_utc, expired = _temp_expiry_status(name, now)
+        queued_flag = name in queued
+        archived_flag = name in archived
+        merged.append(
+            {
+                "name": name,
+                "queue": queue_kind,
+                "queued": queued_flag,
+                "archived": archived_flag,
+                # UI semantics: "on device" means present in all/ but not currently queued.
+                "on_device": (archived_flag and not queued_flag),
+                "expires_at_utc": expires_at_utc,
+                "expired": expired,
+            }
+        )
+
+    # Sort (stable): newest-ish by name (desc), then queued-first, then temp-before-perm.
+    merged.sort(key=lambda it: it.get("name") or "", reverse=True)
+    merged.sort(key=lambda it: 0 if it.get("queued") else 1)
+    merged.sort(key=lambda it: 0 if it.get("queue") == "temporary" else 1)
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "ok",
+            "perm": [{"name": n} for n in perm],
+            "temp": temp_items,
+            "items": merged,
+        },
+    )
+
+
+@app.get("/thumb")
+def get_thumb(request: Request, device_id: str, name: str):
+    config = load_config()
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"status": "error", "error": "Not authenticated"})
+    allowed = get_allowed_devices(config, user)
+    if device_id not in allowed:
+        return JSONResponse(status_code=403, content={"status": "error", "error": "Device not allowed"})
+
+    if not _is_valid_g4_name(name):
+        return JSONResponse(status_code=400, content={"status": "error", "error": "Invalid name"})
+
+    container_sas_url = get_device_sas_url(config, device_id)
+    if not container_sas_url:
+        return JSONResponse(status_code=404, content={"status": "error", "error": "Device not found"})
+
+    _, _, thumb_jpg_name, _ = derive_all_names(name)
+    url = build_blob_url(container_sas_url, thumb_jpg_name)
+    try:
+        # Thumbnails are small, but Azure can still be slow (DNS/TLS/cold paths). Keep this reasonable.
+        with urllib_request.urlopen(url, timeout=15) as resp:
+            data = resp.read()
+        return Response(content=data, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=300"})
+    except error.HTTPError as e:
+        body = b""
+        try:
+            body = e.read()
+        except Exception:
+            body = b""
+        detail = (body[:256].decode(errors="ignore") if body else "")
+        print(f"/thumb upstream HTTPError device_id={device_id} name={name} blob={thumb_jpg_name} code={e.code} detail={detail}")
+        if e.code == 404:
+            return Response(content=b"", status_code=404)
+        # Surface upstream status to make permission issues obvious.
+        return Response(content=b"", status_code=502, headers={"X-Upstream-Status": str(e.code)})
+    except Exception as exc:
+        print(f"/thumb upstream error device_id={device_id} name={name} blob={thumb_jpg_name} err={exc}")
+        return Response(content=b"", status_code=502)
+
+
+@app.get("/meta")
+def get_meta(request: Request, device_id: str, name: str):
+    config = load_config()
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse(status_code=401, content={"status": "error", "error": "Not authenticated"})
+    allowed = get_allowed_devices(config, user)
+    if device_id not in allowed:
+        return JSONResponse(status_code=403, content={"status": "error", "error": "Device not allowed"})
+
+    if not _is_valid_g4_name(name):
+        return JSONResponse(status_code=400, content={"status": "error", "error": "Invalid name"})
+
+    container_sas_url = get_device_sas_url(config, device_id)
+    if not container_sas_url:
+        return JSONResponse(status_code=404, content={"status": "error", "error": "Device not found"})
+
+    _, _, _, meta_json_name = derive_all_names(name)
+    url = build_blob_url(container_sas_url, meta_json_name)
+    try:
+        with urllib_request.urlopen(url, timeout=15) as resp:
+            data = resp.read()
+        return Response(content=data, media_type="application/json", headers={"Cache-Control": "public, max-age=300"})
+    except error.HTTPError as e:
+        body = b""
+        try:
+            body = e.read()
+        except Exception:
+            body = b""
+        detail = (body[:256].decode(errors="ignore") if body else "")
+        print(f"/meta upstream HTTPError device_id={device_id} name={name} blob={meta_json_name} code={e.code} detail={detail}")
+        if e.code == 404:
+            return Response(content=b"{}", status_code=404, media_type="application/json")
+        return Response(
+            content=b"{}",
+            status_code=502,
+            media_type="application/json",
+            headers={"X-Upstream-Status": str(e.code)},
+        )
+    except Exception as exc:
+        print(f"/meta upstream error device_id={device_id} name={name} blob={meta_json_name} err={exc}")
+        return Response(content=b"{}", status_code=502, media_type="application/json")

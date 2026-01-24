@@ -5,6 +5,7 @@
 #include "web_portal_json.h"
 #include "web_portal.h"
 #include "log_manager.h"
+#include "time_utils.h"
 
 #include <esp_heap_caps.h>
 
@@ -30,7 +31,7 @@ static bool is_valid_g4_name(const String &name) {
     const int slash_pos = name.indexOf('/');
     if (slash_pos < 0) return true;
     if (name.lastIndexOf('/') != slash_pos) return false;
-    return name.startsWith("perm/") || name.startsWith("temp/");
+    return name.startsWith("queue-permanent/") || name.startsWith("queue-temporary/");
 }
 
 static bool is_valid_perm_upload_name(const String &name) {
@@ -42,7 +43,7 @@ static bool is_valid_perm_upload_name(const String &name) {
     const int slash_pos = name.indexOf('/');
     if (slash_pos < 0) return true;
     if (name.lastIndexOf('/') != slash_pos) return false;
-    return name.startsWith("perm/");
+    return name.startsWith("queue-permanent/");
 }
 
 static void send_upload_error(AsyncWebServerRequest *request, UploadState *state, int code, const char *msg) {
@@ -88,6 +89,7 @@ static const char *job_type_str(SdJobType type) {
         case SdJobType::Upload: return "upload";
         case SdJobType::Display: return "display";
         case SdJobType::RenderNext: return "render_next";
+        case SdJobType::SyncFromAzure: return "sync";
         default: return "unknown";
     }
 }
@@ -149,7 +151,7 @@ void handleUploadSdImage(AsyncWebServerRequest *request, String filename, size_t
     if (index == 0) {
         String target_name = filename;
         if (filename.indexOf('/') < 0) {
-            target_name = String("perm/") + filename;
+            target_name = String("queue-permanent/") + filename;
         }
 
         if (!is_valid_perm_upload_name(target_name)) {
@@ -270,4 +272,28 @@ void handleGetSdJobStatus(AsyncWebServerRequest *request) {
     }
 
     web_portal_send_json_chunked(request, doc, 200);
+}
+
+void handlePostSdSync(AsyncWebServerRequest *request) {
+    if (!portal_auth_gate(request)) return;
+    if (web_portal_is_ap_mode()) {
+        // Hide this endpoint in core/AP mode.
+        web_portal_send_json_error(request, 404, "Not found");
+        return;
+    }
+
+    if (!time_utils::is_time_valid()) {
+        web_portal_send_json_error(request, 409, "Time not synced");
+        return;
+    }
+
+    DeviceConfig *cfg = web_portal_get_current_config();
+    if (!cfg || cfg->blob_sas_url[0] == '\0') {
+        web_portal_send_json_error(request, 409, "Blob SAS URL not configured");
+        return;
+    }
+
+    const uint32_t job_id = sd_storage_enqueue_sync_from_azure(cfg->blob_sas_url);
+    LOGI("API", "POST /api/sd/sync -> job %lu", (unsigned long)job_id);
+    send_job_queued(request, job_id);
 }

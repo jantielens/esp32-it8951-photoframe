@@ -5,10 +5,16 @@
 #include "it8951_renderer.h"
 #include "image_render_service.h"
 #include "display_manager.h"
+#include "web_portal_render_control.h"
+#include "azure_blob_client.h"
+#include "config_manager.h"
+#include "time_utils.h"
 
 #include <SD.h>
 #include <vector>
 #include <algorithm>
+
+#include <WiFi.h>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -47,6 +53,8 @@ struct SdJob {
     SdImageSelectMode mode = SdImageSelectMode::Random;
     uint32_t last_index = 0;
     char last_name[kMaxNameLen + 1] = {0};
+
+    char sas_url[CONFIG_BLOB_SAS_URL_MAX_LEN] = {0};
 
     std::vector<String> names;
 };
@@ -181,7 +189,29 @@ static bool is_valid_g4_name(const char *name) {
     }
 
     if (slash_count == 0) return true;
-    if (slash_count == 1 && (has_prefix(name, "perm/") || has_prefix(name, "temp/"))) return true;
+    if (slash_count == 1 && (has_prefix(name, "queue-permanent/") || has_prefix(name, "queue-temporary/"))) return true;
+    return false;
+}
+
+static bool parse_all_temp_expiry(const String &name, time_t *out_epoch) {
+    if (!out_epoch) return false;
+    if (!name.startsWith("all/temporary/")) return false;
+    const int prefix_len = strlen("all/temporary/");
+    const int first_sep = name.indexOf("__", prefix_len);
+    if (first_sep < 0) return false;
+    const String ts = name.substring(prefix_len, first_sep);
+    return time_utils::parse_utc_timestamp(ts.c_str(), out_epoch);
+}
+
+static bool derive_queue_name_from_all_blob(const String &all_name, String &out_queue_name) {
+    if (all_name.startsWith("all/temporary/")) {
+        out_queue_name = String("queue-temporary/") + all_name.substring(strlen("all/temporary/"));
+        return true;
+    }
+    if (all_name.startsWith("all/permanent/")) {
+        out_queue_name = String("queue-permanent/") + all_name.substring(strlen("all/permanent/"));
+        return true;
+    }
     return false;
 }
 
@@ -220,8 +250,8 @@ static bool collect_g4_names_from_dir(const char *dir, const char *prefix, std::
 
 static bool collect_g4_names(std::vector<String> &names) {
     bool ok = true;
-    ok = collect_g4_names_from_dir("/perm", "perm/", names) && ok;
-    ok = collect_g4_names_from_dir("/temp", "temp/", names) && ok;
+    ok = collect_g4_names_from_dir("/queue-permanent", "queue-permanent/", names) && ok;
+    ok = collect_g4_names_from_dir("/queue-temporary", "queue-temporary/", names) && ok;
     return ok;
 }
 
@@ -293,6 +323,250 @@ static bool write_upload_to_sd(SdJob *job) {
     LOGI("SDJob", "Upload committed %s", target_path.c_str());
 
     return true;
+}
+
+static bool delete_all_g4_files(SdJob *job) {
+    std::vector<String> names;
+    if (!collect_g4_names(names)) {
+        job_set_message(job, "SD unavailable");
+        return false;
+    }
+
+    size_t deleted = 0;
+    for (const auto &name : names) {
+        const String path = "/" + name;
+        if (SD.exists(path)) {
+            if (SD.remove(path)) {
+                deleted++;
+            } else {
+                LOGW("SDJob", "Failed deleting %s", path.c_str());
+            }
+        }
+    }
+
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Deleted %u files", (unsigned)deleted);
+    job_set_message(job, buf);
+    return true;
+}
+
+static bool list_all_g4_blobs(
+    SdJob *job,
+    const AzureSasUrlParts &sas,
+    const String &prefix,
+    std::vector<String> &out
+) {
+    out.clear();
+    String marker;
+    String next_marker;
+    std::vector<String> names;
+
+    while (true) {
+        names.clear();
+        next_marker = "";
+        const bool ok = azure_blob_list_page(
+            sas,
+            prefix,
+            marker,
+            200,
+            names,
+            next_marker,
+            10000,
+            2,
+            150
+        );
+        if (!ok) {
+            job_set_message(job, "Azure list failed");
+            return false;
+        }
+
+        for (const auto &n : names) {
+            if (n.endsWith(".g4")) {
+                out.push_back(n);
+            }
+        }
+
+        if (next_marker.length() == 0) break;
+        marker = next_marker;
+    }
+
+    sort_names(out);
+    return true;
+}
+
+static bool handle_sync_from_azure(SdJob *job) {
+    if (!job) return false;
+    if (!job->sas_url[0]) {
+        job_set_message(job, "Missing SAS URL");
+        return false;
+    }
+    if (WiFi.status() != WL_CONNECTED) {
+        job_set_message(job, "WiFi not connected");
+        return false;
+    }
+
+    AzureSasUrlParts sas;
+    if (!azure_blob_parse_sas_url(job->sas_url, sas)) {
+        job_set_message(job, "Invalid SAS URL");
+        return false;
+    }
+
+    LOGI("SDJob", "SyncFromAzure start");
+
+    const bool was_paused = web_portal_render_is_paused();
+    web_portal_render_set_paused(true);
+
+    job_set_message(job, "Deleting SD files...");
+    if (!delete_all_g4_files(job)) {
+        web_portal_render_set_paused(was_paused);
+        return false;
+    }
+
+    if (!time_utils::is_time_valid()) {
+        job_set_message(job, "Time not synced");
+        web_portal_render_set_paused(was_paused);
+        return false;
+    }
+
+    std::vector<String> queue_temp_blobs;
+    std::vector<String> queue_perm_blobs;
+    job_set_message(job, "Listing Azure queue-temporary/...");
+    if (!list_all_g4_blobs(job, sas, "queue-temporary/", queue_temp_blobs)) {
+        web_portal_render_set_paused(was_paused);
+        return false;
+    }
+
+    job_set_message(job, "Listing Azure queue-permanent/...");
+    if (!list_all_g4_blobs(job, sas, "queue-permanent/", queue_perm_blobs)) {
+        web_portal_render_set_paused(was_paused);
+        return false;
+    }
+
+    std::vector<String> all_temp_blobs;
+    std::vector<String> all_perm_blobs;
+    job_set_message(job, "Listing Azure all/temporary/...");
+    if (!list_all_g4_blobs(job, sas, "all/temporary/", all_temp_blobs)) {
+        web_portal_render_set_paused(was_paused);
+        return false;
+    }
+
+    job_set_message(job, "Listing Azure all/permanent/...");
+    if (!list_all_g4_blobs(job, sas, "all/permanent/", all_perm_blobs)) {
+        web_portal_render_set_paused(was_paused);
+        return false;
+    }
+
+    LOGI("SDJob", "SyncFromAzure listed queue-temp=%u queue-perm=%u all-temp=%u all-perm=%u",
+        (unsigned)queue_temp_blobs.size(),
+        (unsigned)queue_perm_blobs.size(),
+        (unsigned)all_temp_blobs.size(),
+        (unsigned)all_perm_blobs.size());
+
+    std::vector<String> queue_names;
+    queue_names.reserve(queue_temp_blobs.size() + queue_perm_blobs.size());
+    queue_names.insert(queue_names.end(), queue_temp_blobs.begin(), queue_temp_blobs.end());
+    queue_names.insert(queue_names.end(), queue_perm_blobs.begin(), queue_perm_blobs.end());
+    sort_names(queue_names);
+
+    struct SyncTarget {
+        String blob_name;
+        String queue_name;
+        bool is_temp;
+    };
+
+    std::vector<SyncTarget> targets;
+    targets.reserve(all_temp_blobs.size() + all_perm_blobs.size());
+
+    const time_t now = time(nullptr);
+    auto is_queued = [&](const String &name) -> bool {
+        return std::binary_search(queue_names.begin(), queue_names.end(), name,
+            [](const String &a, const String &b) { return a.compareTo(b) < 0; });
+    };
+
+    auto add_target = [&](const String &all_name, bool is_temp) {
+        String queue_name;
+        if (!derive_queue_name_from_all_blob(all_name, queue_name)) {
+            LOGW("SDJob", "SyncFromAzure skip invalid all name: %s", all_name.c_str());
+            return;
+        }
+        if (is_queued(queue_name)) {
+            return;
+        }
+        if (is_temp) {
+            time_t expiry = 0;
+            if (parse_all_temp_expiry(all_name, &expiry) && now >= expiry) {
+                return;
+            }
+        }
+        targets.push_back({all_name, queue_name, is_temp});
+    };
+
+    for (const auto &b : all_temp_blobs) add_target(b, true);
+    for (const auto &b : all_perm_blobs) add_target(b, false);
+
+    const size_t total = targets.size();
+    size_t ok_count = 0;
+    size_t fail_count = 0;
+    size_t idx = 0;
+    job->names.clear();
+
+    auto download_and_write = [&](const SyncTarget &target) {
+        idx++;
+        char msg[96];
+        snprintf(msg, sizeof(msg), "Downloading %u/%u...", (unsigned)idx, (unsigned)total);
+        job_set_message(job, msg);
+
+        uint8_t *buf = nullptr;
+        size_t size = 0;
+        int http_code = 0;
+        const bool ok_dl = azure_blob_download_to_buffer_ex(
+            sas,
+            target.blob_name,
+            &buf,
+            &size,
+            15000,
+            2,
+            150,
+            &http_code
+        );
+        if (!ok_dl || !buf || size == 0) {
+            LOGW("SDJob", "SyncFromAzure download failed: %s (http=%d)", target.blob_name.c_str(), http_code);
+            fail_count++;
+            job->names.push_back(target.blob_name);
+            if (buf) heap_caps_free(buf);
+            return;
+        }
+
+        // Reuse upload write path (write under queue-temporary/ or queue-permanent/).
+        strlcpy(job->name, target.queue_name.c_str(), sizeof(job->name));
+        job->buffer = buf;
+        job->buffer_size = size;
+        const bool ok_write = write_upload_to_sd(job);
+        if (!ok_write) {
+            LOGW("SDJob", "SyncFromAzure write failed: %s", target.queue_name.c_str());
+            fail_count++;
+            job->names.push_back(target.queue_name);
+        } else {
+            ok_count++;
+        }
+
+        if (job->buffer) {
+            heap_caps_free(job->buffer);
+            job->buffer = nullptr;
+            job->buffer_size = 0;
+        }
+        job->name[0] = '\0';
+    };
+
+    for (const auto &t : targets) download_and_write(t);
+
+    char final_msg[96];
+    snprintf(final_msg, sizeof(final_msg), "Synced: ok=%u failed=%u", (unsigned)ok_count, (unsigned)fail_count);
+    job_set_message(job, final_msg);
+
+    web_portal_render_set_paused(was_paused);
+    LOGI("SDJob", "SyncFromAzure done ok=%u failed=%u", (unsigned)ok_count, (unsigned)fail_count);
+    return fail_count == 0;
 }
 
 static bool handle_render_next(SdJob *job) {
@@ -387,6 +661,10 @@ static void worker_task(void *param) {
             }
             case SdJobType::RenderNext: {
                 ok = handle_render_next(job);
+                break;
+            }
+            case SdJobType::SyncFromAzure: {
+                ok = handle_sync_from_azure(job);
                 break;
             }
             default:
@@ -511,6 +789,16 @@ uint32_t sd_storage_enqueue_render_next(
     return enqueue_job(job);
 }
 
+uint32_t sd_storage_enqueue_sync_from_azure(const char *container_sas_url) {
+    SdJob *job = alloc_job();
+    if (!job) return 0;
+    job->type = SdJobType::SyncFromAzure;
+    if (container_sas_url) {
+        strlcpy(job->sas_url, container_sas_url, sizeof(job->sas_url));
+    }
+    return enqueue_job(job);
+}
+
 bool sd_storage_get_job(uint32_t id, SdJobInfo *out) {
     if (!out || id == 0) return false;
     SdJob *job = find_job(id);
@@ -530,7 +818,7 @@ bool sd_storage_get_job(uint32_t id, SdJobInfo *out) {
 bool sd_storage_get_job_names(uint32_t id, std::vector<String> &out_names) {
     SdJob *job = find_job(id);
     if (!job) return false;
-    if (job->type != SdJobType::List) return false;
+    if (job->type != SdJobType::List && job->type != SdJobType::SyncFromAzure) return false;
     if (job->state != SdJobState::Done) return false;
     out_names = job->names;
     return true;

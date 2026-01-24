@@ -12,6 +12,7 @@ enum class SdJobType : uint8_t {
     Upload = 2,
     Display = 3,
     RenderNext = 4,
+    SyncFromAzure = 5,
 };
 
 enum class SdJobState : uint8_t {
@@ -44,6 +45,11 @@ uint32_t sd_storage_enqueue_render_next(
     uint32_t last_index,
     const char *last_name
 );
+
+// Re-sync SD contents from Azure Blob Storage. Intended for manual recovery.
+// Downloads blobs from all/temporary and all/permanent, excluding queued items
+// and expired temporaries when time is valid, then writes them to SD.
+uint32_t sd_storage_enqueue_sync_from_azure(const char *container_sas_url);
 
 bool sd_storage_get_job(uint32_t id, SdJobInfo *out);
 bool sd_storage_get_job_names(uint32_t id, std::vector<String> &out_names);

@@ -113,9 +113,11 @@ static void wifi_stack_quick_reset(bool robust) {
     WiFi.disconnect(true);
     delay(robust ? 100 : 30);
     WiFi.mode(WIFI_OFF);
-    delay(robust ? 500 : 150);
+    // Proven reliable reset timings across boards/routers.
+    // We keep a "robust" mode, but the default path should already be conservative.
+    delay(robust ? 1200 : 1000);
     WiFi.mode(WIFI_STA);
-    delay(robust ? 100 : 30);
+    delay(robust ? 700 : 500);
     WiFi.setSleep(false);
     WiFi.setAutoReconnect(true);
 }

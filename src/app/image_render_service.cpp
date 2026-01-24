@@ -4,16 +4,13 @@
 #include "it8951_renderer.h"
 #include "log_manager.h"
 #include "rtc_state.h"
+#include "time_utils.h"
 
 #include <SD.h>
-#include <time.h>
 #include <algorithm>
 #include <vector>
-#include <cstdlib>
 
 namespace {
-static constexpr time_t kValidTimeThreshold = 1609459200; // 2021-01-01T00:00:00Z
-
 static bool render_g4_path(const String &path) {
     const bool ui_was_active = display_manager_ui_is_active();
     if (ui_was_active) {
@@ -36,77 +33,20 @@ static bool render_g4_path(const String &path) {
     return true;
 }
 
-// If NTP hasn't synced, the epoch is often 1970; use a sane threshold.
-static bool is_time_valid() {
-    time_t now = time(nullptr);
-    return now >= kValidTimeThreshold;
-}
-
-static time_t timegm_portable(struct tm *tm) {
-    const char *tz = getenv("TZ");
-    setenv("TZ", "UTC0", 1);
-    tzset();
-    time_t t = mktime(tm);
-    if (tz) {
-        setenv("TZ", tz, 1);
-    } else {
-        unsetenv("TZ");
-    }
-    tzset();
-    return t;
-}
-
-// Parse UTC timestamps in the filename format YYYYMMDDTHHMMSSZ.
-// Returns false for malformed values so we won't delete valid images by mistake.
-static bool parse_utc_timestamp(const char *ts, time_t *out_epoch) {
-    if (!ts || !out_epoch) return false;
-    if (strlen(ts) != 16) return false;
-    for (int i = 0; i < 16; i++) {
-        const char c = ts[i];
-        if (i == 8) {
-            if (c != 'T') return false;
-        } else if (i == 15) {
-            if (c != 'Z') return false;
-        } else if (c < '0' || c > '9') {
-            return false;
-        }
-    }
-
-    const int year = (ts[0] - '0') * 1000 + (ts[1] - '0') * 100 + (ts[2] - '0') * 10 + (ts[3] - '0');
-    const int mon = (ts[4] - '0') * 10 + (ts[5] - '0');
-    const int day = (ts[6] - '0') * 10 + (ts[7] - '0');
-    const int hour = (ts[9] - '0') * 10 + (ts[10] - '0');
-    const int min = (ts[11] - '0') * 10 + (ts[12] - '0');
-    const int sec = (ts[13] - '0') * 10 + (ts[14] - '0');
-
-    struct tm tm = {};
-    tm.tm_year = year - 1900;
-    tm.tm_mon = mon - 1;
-    tm.tm_mday = day;
-    tm.tm_hour = hour;
-    tm.tm_min = min;
-    tm.tm_sec = sec;
-    tm.tm_isdst = 0;
-
-    const time_t epoch = timegm_portable(&tm);
-    if (epoch <= 0) return false;
-    *out_epoch = epoch;
-    return true;
-}
-
-// Extract the expiry from temp/<EXPIRES_UTC>__<UPLOAD_UTC>__<slug>.g4.
+// Extract the expiry from queue-temporary/<EXPIRES_UTC>__<UPLOAD_UTC>__<slug>.g4.
 // We only need the first timestamp for expiry cleanup.
 static bool parse_temp_expiry(const String &name, time_t *out_epoch) {
     if (!out_epoch) return false;
-    if (!name.startsWith("temp/")) return false;
-    const int first_sep = name.indexOf("__", 5);
+    if (!name.startsWith("queue-temporary/")) return false;
+    const int prefix_len = strlen("queue-temporary/");
+    const int first_sep = name.indexOf("__", prefix_len);
     if (first_sep < 0) return false;
-    const String ts = name.substring(5, first_sep);
-    return parse_utc_timestamp(ts.c_str(), out_epoch);
+    const String ts = name.substring(prefix_len, first_sep);
+    return time_utils::parse_utc_timestamp(ts.c_str(), out_epoch);
 }
 
 // Collect .g4 names from a single directory and apply a prefix so the caller
-// receives logical paths like perm/<name> or temp/<name>.
+// receives logical paths like queue-permanent/<name> or queue-temporary/<name>.
 static bool list_g4_names_in_dir(const char *dir, const char *prefix, std::vector<String> &out) {
     if (!dir) return false;
     if (!SD.exists(dir)) return true;
@@ -218,7 +158,7 @@ bool image_render_service_render_next(SdImageSelectMode mode, uint32_t last_inde
             if (mode == SdImageSelectMode::Sequential) {
                 rtc_image_state_set_last_image_name(priority_name);
             }
-            const bool is_temp = String(priority_name).startsWith("temp/");
+            const bool is_temp = String(priority_name).startsWith("queue-temporary/");
             if (is_temp) {
                 rtc_image_state_set_last_temp_name(priority_name);
             } else {
@@ -229,15 +169,15 @@ bool image_render_service_render_next(SdImageSelectMode mode, uint32_t last_inde
         }
     }
 
-    // Build logical lists from /perm and /temp only (no root fallback).
+    // Build logical lists from /queue-permanent and /queue-temporary only (no root fallback).
     std::vector<String> perm_names;
     std::vector<String> temp_names;
-    if (!list_g4_names_in_dir("/perm", "perm/", perm_names)) {
-        LOGE("SD", "Failed to open /perm");
+    if (!list_g4_names_in_dir("/queue-permanent", "queue-permanent/", perm_names)) {
+        LOGE("SD", "Failed to open /queue-permanent");
         return false;
     }
-    if (!list_g4_names_in_dir("/temp", "temp/", temp_names)) {
-        LOGE("SD", "Failed to open /temp");
+    if (!list_g4_names_in_dir("/queue-temporary", "queue-temporary/", temp_names)) {
+        LOGE("SD", "Failed to open /queue-temporary");
         return false;
     }
 
@@ -245,7 +185,7 @@ bool image_render_service_render_next(SdImageSelectMode mode, uint32_t last_inde
     sort_names(temp_names);
 
     // Only delete expired temp files when we have a valid clock.
-    const bool can_cleanup = is_time_valid();
+    const bool can_cleanup = time_utils::is_time_valid();
     time_t now = 0;
     if (can_cleanup) {
         now = time(nullptr);
@@ -260,7 +200,7 @@ bool image_render_service_render_next(SdImageSelectMode mode, uint32_t last_inde
         return false;
     }
 
-    // Alternate perm/temp when both are available. If one is empty, always use the other.
+    // Alternate permanent/temporary when both are available. If one is empty, always use the other.
     const bool last_was_temp = rtc_image_state_get_last_was_temp();
     bool choose_temp = false;
     if (has_temp && has_perm) {

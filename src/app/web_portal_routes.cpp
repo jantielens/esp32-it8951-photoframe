@@ -4,6 +4,7 @@
 #include "web_portal_config.h"
 #include "web_portal_device_api.h"
 #include "web_portal_display.h"
+#include "web_portal_archive.h"
 #include "web_portal_sd_images.h"
 #include "web_portal_render_control_api.h"
 #include "web_portal_firmware.h"
@@ -65,6 +66,10 @@ void web_portal_register_routes(AsyncWebServer* server) {
 
     registerOptions("/api/reboot");
     server->on("/api/reboot", HTTP_POST, handleReboot);
+
+    // Archive-backed previews (thumb-only)
+    registerOptions("/api/archive/preview");
+    server->on("/api/archive/preview", HTTP_GET, handleGetArchivePreview);
 
     // Render pause/resume control (for long-running SD operations)
     registerOptions("/api/render/status");
@@ -153,6 +158,9 @@ void web_portal_register_routes(AsyncWebServer* server) {
         handleUploadSdImage
     );
     server->on("/api/sd/images", HTTP_DELETE, handleDeleteSdImage);
+
+    registerOptions("/api/sd/sync");
+    server->on("/api/sd/sync", HTTP_POST, handlePostSdSync);
 
     registerOptions("/api/sd/jobs");
     server->on("/api/sd/jobs", HTTP_GET, handleGetSdJobStatus);

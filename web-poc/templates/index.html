@@ -16,6 +16,20 @@
       .muted { color: #6b7280; font-size: 0.9rem; }
       .preview { margin-top: 16px; text-align: center; }
       .preview img { max-width: 50%; border-radius: 8px; border: 1px solid #e5e7eb; }
+      h2 { margin-top: 28px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+      th, td { text-align: left; padding: 10px; border-top: 1px solid #e5e7eb; vertical-align: middle; }
+      th { font-size: 0.9rem; color: #374151; background: #f9fafb; }
+      .thumb-wrap { width: 56px; height: 56px; border-radius: 10px; border: 1px solid #e5e7eb; background: #f3f4f6; overflow: hidden; }
+      .thumb { width: 56px; height: 56px; border-radius: 10px; border: 1px solid #e5e7eb; background: #f3f4f6; object-fit: cover; }
+      .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.8rem; border: 1px solid #e5e7eb; background: #fff; color: #374151; }
+      .badge.temporary { border-color: #f59e0b; }
+      .badge.permanent { border-color: #3b82f6; }
+      .badge.state.queued { border-color: #8b5cf6; }
+      .badge.state.ondevice { border-color: #10b981; }
+      .badge.expired { border-color: #ef4444; color: #991b1b; background: #fdecea; }
+      .row-meta { color: #6b7280; font-size: 0.85rem; }
+      .row-name { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.85rem; }
     </style>
   </head>
   <body>
@@ -37,8 +51,8 @@
 
           <label for="queue">Queue</label>
           <select id="queue" name="queue" required>
-            <option value="perm" selected>Permanent (perm/)</option>
-            <option value="temp">Temporary (temp/)</option>
+            <option value="queue-permanent" selected>Permanent (queue-permanent/)</option>
+            <option value="queue-temporary">Temporary (queue-temporary/)</option>
           </select>
 
           <div id="ttl-wrapper" style="display: none;">
@@ -50,6 +64,9 @@
           <label for="file">JPG file</label>
           <input id="file" name="file" type="file" accept=".jpg,.jpeg,image/jpeg" required />
 
+          <label for="caption">Caption (optional)</label>
+          <input id="caption" name="caption" type="text" maxlength="120" placeholder="e.g. Sunset in Porto" />
+
           <label for="progress">Progress</label>
           <progress id="progress" value="0" max="100" style="width: 100%;"></progress>
           <div id="status" class="muted" style="margin-top: 6px;">Idle</div>
@@ -60,6 +77,32 @@
             <img id="preview-img" alt="Uploaded preview" />
           </div>
         </form>
+
+        <h2>Device twin</h2>
+        <div class="muted">Shows queue blobs (<span class="row-name">queue-temporary/</span>, <span class="row-name">queue-permanent/</span>) plus truth store previews (<span class="row-name">all/temporary</span>, <span class="row-name">all/permanent</span>) in one deduplicated list. “On device” means: present in <span class="row-name">all/</span> but not currently queued. Thumbnails/meta are proxied by this web-poc (no SAS in the browser).</div>
+        <button id="refresh" type="button" style="margin-top: 10px;">Refresh</button>
+        <div id="twin-error" class="error" style="display: none;"></div>
+        <table>
+          <colgroup>
+            <col style="width: 70px;" />
+            <col />
+            <col style="width: 140px;" />
+            <col style="width: 170px;" />
+            <col style="width: 140px;" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Preview</th>
+              <th>Caption</th>
+              <th>Uploaded by</th>
+              <th>State</th>
+              <th>Expires in</th>
+            </tr>
+          </thead>
+          <tbody id="twin-body">
+            <tr><td colspan="5" class="muted">Idle</td></tr>
+          </tbody>
+        </table>
       {% endif %}
     </div>
     <script>
@@ -70,9 +113,13 @@
       const messageBox = document.getElementById('message');
       const fileInput = document.getElementById('file');
       const queueSelect = document.getElementById('queue');
+      const deviceSelect = document.getElementById('device_id');
       const ttlWrapper = document.getElementById('ttl-wrapper');
       const preview = document.getElementById('preview');
       const previewImg = document.getElementById('preview-img');
+      const refreshBtn = document.getElementById('refresh');
+      const twinBody = document.getElementById('twin-body');
+      const twinError = document.getElementById('twin-error');
 
       function resetMessages() {
         errorBox.style.display = 'none';
@@ -83,10 +130,195 @@
 
       function updateTtlVisibility() {
         if (!queueSelect || !ttlWrapper) return;
-        if (queueSelect.value === 'temp') {
+        if (queueSelect.value === 'queue-temporary') {
           ttlWrapper.style.display = 'block';
         } else {
           ttlWrapper.style.display = 'none';
+        }
+      }
+
+      function esc(text) {
+        const span = document.createElement('span');
+        span.textContent = text;
+        return span.innerHTML;
+      }
+
+      function setTwinError(msg) {
+        if (!twinError) return;
+        if (msg) {
+          twinError.textContent = msg;
+          twinError.style.display = 'block';
+        } else {
+          twinError.textContent = '';
+          twinError.style.display = 'none';
+        }
+      }
+
+      function formatDuration(ms) {
+        if (ms <= 0) return 'Expired';
+        const totalMinutes = Math.floor(ms / 60000);
+        if (totalMinutes <= 0) return '<1min';
+
+        const days = Math.floor(totalMinutes / (60 * 24));
+        const hours = Math.floor((totalMinutes - days * 60 * 24) / 60);
+        const minutes = totalMinutes % 60;
+
+        const parts = [];
+        if (days > 0) parts.push(`${days}d`);
+        if (hours > 0) parts.push(`${hours}h`);
+        if (minutes > 0) parts.push(`${minutes}min`);
+
+        // Keep it compact: show at most 2 parts.
+        return parts.slice(0, 2).join(', ');
+      }
+
+      function computeExpiresIn(expiresAtUtc) {
+        if (!expiresAtUtc) return null;
+        const t = Date.parse(expiresAtUtc);
+        if (Number.isNaN(t)) return null;
+        const now = Date.now();
+        return formatDuration(t - now);
+      }
+
+      async function fetchMeta(deviceId, g4Name) {
+        const url = `/meta?device_id=${encodeURIComponent(deviceId)}&name=${encodeURIComponent(g4Name)}`;
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        try {
+          return await res.json();
+        } catch {
+          return null;
+        }
+      }
+
+      async function refreshTwin() {
+        if (!deviceSelect || !twinBody) return;
+        setTwinError(null);
+        twinBody.innerHTML = '<tr><td colspan="5" class="muted">Loading...</td></tr>';
+
+        const deviceId = deviceSelect.value;
+        try {
+          const res = await fetch(`/api/list?device_id=${encodeURIComponent(deviceId)}`);
+          const data = await res.json();
+          if (!res.ok || data.status !== 'ok') {
+            throw new Error(data.error || `List failed (status ${res.status})`);
+          }
+
+          // New API: merged items list.
+          // Fallback to legacy perm/temp fields if items isn't present.
+          const rows = Array.isArray(data.items) ? data.items.map(it => ({
+            name: it.name,
+            queue: it.queue,
+            queued: !!it.queued,
+            archived: !!it.archived,
+            on_device: (typeof it.on_device === 'boolean') ? it.on_device : (!!it.archived && !it.queued),
+            expires_at_utc: it.expires_at_utc || null,
+            expired: (typeof it.expired === 'boolean') ? it.expired : null,
+          })) : (() => {
+            const legacy = [];
+            for (const item of (data.temp || [])) {
+              legacy.push({
+                name: item.name,
+                queue: 'temporary',
+                queued: true,
+                archived: false,
+                expires_at_utc: item.expires_at_utc,
+                expired: item.expired,
+              });
+            }
+            for (const item of (data.perm || [])) {
+              legacy.push({ name: item.name, queue: 'permanent', queued: true, archived: false, expires_at_utc: null, expired: null });
+            }
+            return legacy;
+          })();
+
+          if (rows.length === 0) {
+            twinBody.innerHTML = '<tr><td colspan="5" class="muted">No items</td></tr>';
+            return;
+          }
+
+          twinBody.innerHTML = rows.map(r => {
+            const thumbUrl = `/thumb?device_id=${encodeURIComponent(deviceId)}&name=${encodeURIComponent(r.name)}`;
+
+            const scopeLabel = (r.queue === 'temporary') ? 'Temporary' : 'Permanent';
+            const scopeBadge = `<span class="badge ${r.queue}">${scopeLabel}</span>`;
+
+            let stateBadge = '<span class="row-meta">—</span>';
+            if (r.queued) {
+              stateBadge = '<span class="badge state queued">Queued</span>';
+            } else if (r.on_device || r.archived) {
+              stateBadge = '<span class="badge state ondevice">On device</span>';
+            }
+
+            const stateHtml = `<div style="display:flex; gap:6px; flex-wrap:wrap;">${scopeBadge}${stateBadge}</div>`;
+
+            let expiresIn = '<span class="muted">—</span>';
+            if (r.queue === 'temporary') {
+              const remaining = computeExpiresIn(r.expires_at_utc);
+              if (remaining) {
+                expiresIn = r.expired ? `<span class="badge expired">Expired</span>` : `<span class="row-meta">${esc(remaining)}</span>`;
+              } else {
+                expiresIn = '<span class="row-meta">(unknown)</span>';
+              }
+            }
+
+            // We'll fetch caption/original filename via /meta after initial render.
+            const captionHtml = `<span class="row-name" data-meta-name="${esc(r.name)}">${esc(r.name)}</span>`;
+            const uploaderHtml = `<span class="row-meta" data-meta-uploader="${esc(r.name)}">—</span>`;
+
+            return `
+              <tr>
+                <td><div class="thumb-wrap"><img class="thumb" src="${thumbUrl}" loading="lazy" decoding="async" alt="thumb" onerror="this.style.display='none'" /></div></td>
+                <td><div>${captionHtml}</div></td>
+                <td><div>${uploaderHtml}</div></td>
+                <td>${stateHtml}</td>
+                <td>${expiresIn}</td>
+              </tr>
+            `;
+          }).join('');
+
+          // Populate captions from meta JSON (best-effort).
+          const captionSpans = twinBody.querySelectorAll('[data-meta-name]');
+          const uploaderSpans = twinBody.querySelectorAll('[data-meta-uploader]');
+          const metaCache = new Map();
+          for (const el of [...captionSpans, ...uploaderSpans]) {
+            const g4Name = el.getAttribute('data-meta-name') || el.getAttribute('data-meta-uploader');
+            if (!g4Name) continue;
+
+            // Fetch at most once per name.
+            if (!metaCache.has(g4Name)) {
+              metaCache.set(g4Name, fetchMeta(deviceId, g4Name));
+            }
+          }
+          for (const el of captionSpans) {
+            const g4Name = el.getAttribute('data-meta-name');
+            if (!g4Name) continue;
+            try {
+              const meta = await metaCache.get(g4Name);
+              if (!meta) continue;
+              const caption = (meta.caption || '').trim();
+              const original = (meta.original_filename || '').trim();
+              el.textContent = caption || original || g4Name;
+            } catch {
+              // ignore
+            }
+          }
+
+          for (const el of uploaderSpans) {
+            const g4Name = el.getAttribute('data-meta-uploader');
+            if (!g4Name) continue;
+            try {
+              const meta = await metaCache.get(g4Name);
+              if (!meta) continue;
+              const uploader = (meta.uploader || '').trim();
+              el.textContent = uploader || '—';
+            } catch {
+              // ignore
+            }
+          }
+        } catch (e) {
+          setTwinError(String(e));
+          twinBody.innerHTML = '<tr><td colspan="5" class="muted">Failed</td></tr>';
         }
       }
 
@@ -129,11 +361,16 @@
             const data = xhr.response || {};
             if (xhr.status >= 200 && xhr.status < 300 && data.status === 'ok') {
               statusLabel.textContent = 'Done';
-              if (fileInput.files && fileInput.files[0]) {
-                const objectUrl = URL.createObjectURL(fileInput.files[0]);
-                previewImg.src = objectUrl;
+              messageBox.textContent = data.message || 'Uploaded.';
+              messageBox.style.display = 'block';
+
+              const deviceId = deviceSelect ? deviceSelect.value : '';
+              if (data.g4_path && deviceId) {
+                previewImg.src = `/thumb?device_id=${encodeURIComponent(deviceId)}&name=${encodeURIComponent(data.g4_path)}`;
                 preview.style.display = 'block';
               }
+
+              refreshTwin();
               form.reset();
             } else {
               statusLabel.textContent = 'Failed';
@@ -152,6 +389,14 @@
             preview.style.display = 'block';
           }
         });
+
+        if (refreshBtn) {
+          refreshBtn.addEventListener('click', refreshTwin);
+        }
+        if (deviceSelect) {
+          deviceSelect.addEventListener('change', refreshTwin);
+        }
+        refreshTwin();
       }
     </script>
   </body>
