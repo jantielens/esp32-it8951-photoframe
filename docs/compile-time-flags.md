@@ -122,9 +122,11 @@ Legend: ✅ = enabled/true, blank = disabled/false, ? = unknown/undefined
   - src/app/web_portal_display.h
   - src/app/web_portal_routes.cpp
 - **HAS_BUILTIN_LED**
+  - src/app/app.ino
   - src/app/board_config.h
 - **HAS_FUEL_GAUGE**
   - src/app/board_config.h
+  - src/app/max17048_fuel_gauge.cpp
 - **HAS_MQTT**
   - src/app/app.ino
   - src/app/board_config.h

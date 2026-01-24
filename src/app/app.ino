@@ -24,6 +24,7 @@
 #include <SPI.h>
 #include <WiFi.h>
 #include <esp_sleep.h>
+#include <driver/gpio.h>
 #include <driver/rtc_io.h>
 #include <time.h>
 static constexpr uint32_t kDefaultSleepSeconds = 60;
@@ -33,6 +34,47 @@ static constexpr uint8_t kButtonActiveLevel = LOW;
 static constexpr uint32_t kButtonDebounceMs = 30;
 static constexpr uint32_t kNoImageRetryMs = 5000;
 static constexpr time_t kValidEpochThreshold = 1609459200; // 2021-01-01T00:00:00Z
+
+static inline bool status_led_enabled() {
+#if HAS_BUILTIN_LED
+  return LED_PIN >= 0;
+#else
+  return false;
+#endif
+}
+
+static inline uint8_t status_led_on_level() {
+  return LED_ACTIVE_HIGH ? HIGH : LOW;
+}
+
+static inline uint8_t status_led_off_level() {
+  return LED_ACTIVE_HIGH ? LOW : HIGH;
+}
+
+static inline gpio_num_t status_led_gpio() {
+  return static_cast<gpio_num_t>(LED_PIN);
+}
+
+static void status_led_boot_on() {
+  if (!status_led_enabled()) return;
+
+  // Release any previous deep-sleep hold (persists across deep sleep reset).
+  gpio_hold_dis(status_led_gpio());
+  gpio_deep_sleep_hold_dis();
+
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, status_led_on_level());
+}
+
+static void status_led_prepare_for_sleep() {
+  if (!status_led_enabled()) return;
+
+  // Force LED fully OFF and latch the level through deep sleep.
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, status_led_off_level());
+  gpio_hold_en(status_led_gpio());
+  gpio_deep_sleep_hold_en();
+}
 
 #if SD_USE_ARDUINO_SPI
 static SPIClass &sdSpi = SPI;
@@ -199,6 +241,8 @@ static void enter_deep_sleep(uint32_t sleep_seconds) {
   Serial.flush();
   delay(200);
   LOGI("Sleep", "Entering deep sleep for %lus", (unsigned long)sleep_seconds);
+
+  status_led_prepare_for_sleep();
 
   // Ensure IT8951 SPI/control pins are high-Z before removing the 5V rail.
   it8951_renderer_prepare_for_power_cut();
@@ -404,6 +448,12 @@ void setup() {
   health_history_start();
   #endif
 
+  // Put boost EN into a known state early and release deep-sleep holds.
+  display_power_init();
+
+  // Visual indicator that the board is awake (e.g. woke via button).
+  status_led_boot_on();
+
   log_init(115200);
   delay(200);
   LOGI("Boot", "Boot");
@@ -411,9 +461,6 @@ void setup() {
   const esp_sleep_wakeup_cause_t wake_cause = esp_sleep_get_wakeup_cause();
   LOGI("Boot", "Reset reason=%d", (int)reset_reason);
   LOGI("Boot", "Wake cause=%d", (int)wake_cause);
-
-  // Ensure display boost EN is in a known state early.
-  display_power_init();
 
     int wake_button2_pin = -1;
     #if defined(WAKE_BUTTON2_PIN)
