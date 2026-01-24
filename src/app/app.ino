@@ -7,6 +7,7 @@
 #include "input_manager.h"
 #include "display_power.h"
 #include "blob_pull.h"
+#include "blob_commands.h"
 #include "portal_controller.h"
 #include "render_scheduler.h"
 #include "boot_mode.h"
@@ -93,6 +94,8 @@ static const SdCardPins kSdPins = {
 #if HAS_MQTT
 MqttManager mqtt_manager;
 #endif
+
+static bool g_display_manager_initialized = false;
 
 struct BlobPullContext {
   const DeviceConfig *config = nullptr;
@@ -340,6 +343,17 @@ static void run_always_on(DeviceConfig &config, bool config_loaded) {
   // Keep time reasonably fresh for temp expiry cleanup while always-on.
   sync_time_ntp(WiFi.status() == WL_CONNECTED);
 
+  // Best-effort: process commands once after network is up.
+  if (WiFi.status() == WL_CONNECTED && strlen(config.blob_sas_url) > 0) {
+    BlobCommandActions cmd_actions;
+    (void)blob_commands_process(config, sdSpi, kSdPins, kSdFrequencyHz, cmd_actions);
+    if (cmd_actions.reboot_now) {
+      LOGI("Cmd", "Reboot requested");
+      wifi_shutdown();
+      ESP.restart();
+    }
+  }
+
   #if HAS_MQTT
   mqtt_init_from_config(config);
   #endif
@@ -381,7 +395,7 @@ static void run_always_on(DeviceConfig &config, bool config_loaded) {
 }
 
 // One-shot sleep cycle: never starts the portal.
-static void run_sleep_cycle(const DeviceConfig &config, uint32_t sleep_seconds, bool quiet_ui) {
+static void run_sleep_cycle(DeviceConfig &config, bool config_loaded, uint32_t sleep_seconds, bool quiet_ui) {
   LOGI("Mode", "SleepCycle start (quiet_ui=%s)", quiet_ui ? "true" : "false");
 
   const bool wifi_was_connected = (WiFi.status() == WL_CONNECTED);
@@ -395,11 +409,59 @@ static void run_sleep_cycle(const DeviceConfig &config, uint32_t sleep_seconds, 
 
   if (!wifi_connected && needs_wifi) {
     // In sleep-cycle mode we avoid display activity while WiFi is active.
-    wifi_connected = wifi_connect_fast_sleepcycle(config, "Boot", /*budget_ms=*/6000, /*show_status=*/false);
+    uint32_t wifi_budget_ms = 6000;
+    // Commands + blob pull benefit from a bit more time, especially if we need to reset and retry.
+    if (strlen(config.blob_sas_url) > 0 ||
+    #if HAS_MQTT
+        strlen(config.mqtt_host) > 0 ||
+    #endif
+        false) {
+      wifi_budget_ms = 9000;
+    }
+
+    wifi_connected = wifi_connect_fast_sleepcycle(config, "Boot", /*budget_ms=*/wifi_budget_ms, /*show_status=*/false);
   }
 
   // Best-effort; used for temp expiry cleanup.
   sync_time_ntp(wifi_connected);
+
+  uint32_t effective_sleep_seconds = sleep_seconds;
+
+  if (wifi_connected && strlen(config.blob_sas_url) > 0) {
+    BlobCommandActions cmd_actions;
+    const bool had_commands = blob_commands_process(config, sdSpi, kSdPins, kSdFrequencyHz, cmd_actions);
+
+    if (cmd_actions.override_sleep_seconds) {
+      effective_sleep_seconds = cmd_actions.sleep_seconds;
+    } else if (config.sleep_timeout_seconds > 0) {
+      effective_sleep_seconds = config.sleep_timeout_seconds;
+    }
+
+    if (had_commands && cmd_actions.reboot_now) {
+      LOGI("Cmd", "Reboot requested");
+      wifi_shutdown();
+      ESP.restart();
+    }
+
+    if (had_commands && cmd_actions.enter_config_portal_now) {
+      LOGI("Cmd", "Config portal requested");
+      if (!g_display_manager_initialized) {
+        display_manager_init(&config);
+        g_display_manager_initialized = true;
+      }
+      run_config_mode(config, config_loaded);
+      return;
+    }
+
+    if (had_commands && cmd_actions.skip_render_and_sleep) {
+      LOGI("Cmd", "Skipping render; sleeping");
+      wifi_shutdown();
+      enter_deep_sleep(effective_sleep_seconds);
+      return;
+    }
+  } else if (strlen(config.blob_sas_url) > 0 && !wifi_connected) {
+    LOGI("Cmd", "WiFi unavailable; skipping command check");
+  }
 
   bool downloaded = false;
   if (strlen(config.blob_sas_url) > 0) {
@@ -440,7 +502,7 @@ static void run_sleep_cycle(const DeviceConfig &config, uint32_t sleep_seconds, 
   mqtt_store_deferred_payload_if_configured(config);
   #endif
 
-  enter_deep_sleep(sleep_seconds);
+  enter_deep_sleep(effective_sleep_seconds);
 }
 
 void setup() {
@@ -516,6 +578,7 @@ void setup() {
   const bool cold_boot = (reset_reason != ESP_RST_DEEPSLEEP);
   if (!decision.quiet_ui && (decision.mode != BootMode::SleepCycle || cold_boot)) {
     display_manager_init(&config);
+    g_display_manager_initialized = true;
     {
       char status[64];
       snprintf(status, sizeof(status), "Display OK %dx%d r%d", DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_ROTATION);
@@ -536,7 +599,7 @@ void setup() {
       return;
 
     case BootMode::SleepCycle:
-      run_sleep_cycle(config, sleep_seconds, decision.quiet_ui);
+      run_sleep_cycle(config, config_loaded, sleep_seconds, decision.quiet_ui);
       return;
   }
 }

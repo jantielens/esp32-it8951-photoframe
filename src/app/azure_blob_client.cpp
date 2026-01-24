@@ -334,6 +334,107 @@ bool azure_blob_download_to_buffer_ex(
     return false;
 }
 
+bool azure_blob_download_to_buffer_bounded(
+    const AzureSasUrlParts &sas,
+    const String &blob_name,
+    size_t max_bytes,
+    uint8_t **out_buf,
+    size_t *out_size,
+    uint32_t timeout_ms,
+    uint8_t retries,
+    uint32_t retry_delay_ms,
+    int *out_http_code
+) {
+    if (out_buf) *out_buf = nullptr;
+    if (out_size) *out_size = 0;
+    if (out_http_code) *out_http_code = 0;
+
+    const String url = azure_blob_build_blob_url(sas, blob_name);
+
+    for (uint8_t attempt = 1; attempt <= retries; attempt++) {
+        HTTPClient http;
+        WiFiClient plain;
+        WiFiClientSecure tls;
+        if (!http_begin(http, plain, tls, sas, url, timeout_ms)) {
+            if (out_http_code) *out_http_code = 0;
+            LOGW("Azure", "Download begin failed (attempt %u/%u)", attempt, retries);
+        } else {
+            http.addHeader("x-ms-version", kAzureMsVersion);
+            const int code = http.GET();
+            if (out_http_code) *out_http_code = code;
+            if (code == HTTP_CODE_OK) {
+                WiFiClient *stream = http.getStreamPtr();
+                int remaining = http.getSize();
+                if (remaining <= 0) {
+                    http.end();
+                    LOGW("Azure", "Missing content-length for %s", blob_name.c_str());
+                    return false;
+                }
+
+                const size_t total_size = static_cast<size_t>(remaining);
+                if (max_bytes > 0 && total_size > max_bytes) {
+                    http.end();
+                    LOGW("Azure", "Refusing large download (%lu>%lu): %s",
+                         (unsigned long)total_size,
+                         (unsigned long)max_bytes,
+                         blob_name.c_str());
+                    return false;
+                }
+
+                uint8_t *buffer = (uint8_t *)heap_caps_malloc(total_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                if (!buffer) {
+                    buffer = (uint8_t *)heap_caps_malloc(total_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+                }
+                if (!buffer) {
+                    http.end();
+                    LOGE("Azure", "Alloc failed (%lu bytes)", (unsigned long)total_size);
+                    return false;
+                }
+
+                uint8_t buf[1024];
+                size_t total = 0;
+                bool ok = true;
+
+                while (http.connected() && remaining > 0) {
+                    const size_t available = stream->available();
+                    if (available) {
+                        const size_t to_read = available > sizeof(buf) ? sizeof(buf) : available;
+                        const int read = stream->readBytes(buf, to_read);
+                        if (read <= 0) break;
+                        if (total + static_cast<size_t>(read) > total_size) {
+                            ok = false;
+                            break;
+                        }
+                        memcpy(buffer + total, buf, static_cast<size_t>(read));
+                        total += static_cast<size_t>(read);
+                        remaining -= read;
+                    } else {
+                        delay(1);
+                    }
+                }
+
+                http.end();
+
+                if (!ok || remaining != 0 || total != total_size) {
+                    LOGW("Azure", "Download incomplete (%lu/%lu)", (unsigned long)total, (unsigned long)total_size);
+                    heap_caps_free(buffer);
+                    return false;
+                }
+
+                if (out_buf) *out_buf = buffer;
+                if (out_size) *out_size = total_size;
+                return true;
+            }
+
+            LOGW("Azure", "Download failed (%d) attempt %u/%u", code, attempt, retries);
+        }
+        http.end();
+        delay(retry_delay_ms * attempt);
+    }
+
+    return false;
+}
+
 bool azure_blob_delete(
     const AzureSasUrlParts &sas,
     const String &blob_name,
@@ -356,7 +457,16 @@ bool azure_blob_delete(
                 http.end();
                 return true;
             }
-            LOGW("Azure", "Delete failed (%d) attempt %u/%u", code, attempt, retries);
+
+            // Treat NOT_FOUND as idempotent success. This can happen when:
+            // - Multiple consumers race (or a previous step already deleted it)
+            // - A clean_all pass deletes the command blob before we delete it again
+            if (code == HTTP_CODE_NOT_FOUND) {
+                http.end();
+                return true;
+            }
+
+            LOGW("Azure", "Delete failed (%d) name=%s attempt %u/%u", code, blob_name.c_str(), attempt, retries);
         }
         http.end();
         delay(retry_delay_ms * attempt);

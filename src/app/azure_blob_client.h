@@ -41,6 +41,21 @@ bool azure_blob_download_to_buffer(
     uint32_t retry_delay_ms
 );
 
+// Download a blob into a heap buffer, rejecting responses larger than max_bytes.
+// Caller owns the returned buffer (heap_caps_free). Returns false if content-length is missing,
+// too large, or download fails.
+bool azure_blob_download_to_buffer_bounded(
+    const AzureSasUrlParts &sas,
+    const String &blob_name,
+    size_t max_bytes,
+    uint8_t **out_buf,
+    size_t *out_size,
+    uint32_t timeout_ms,
+    uint8_t retries,
+    uint32_t retry_delay_ms,
+    int *out_http_code
+);
+
 // Like azure_blob_download_to_buffer but also returns the last HTTP status code (0 if begin() failed).
 bool azure_blob_download_to_buffer_ex(
     const AzureSasUrlParts &sas,
